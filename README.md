@@ -17,6 +17,10 @@
 
 ---
 
+<p align="center">
+  <img src="docs/screenshots/aether-code-main.png" alt="Aether Code Liquid Glass Interface" width="95%" />
+</p>
+
 ## 🌟 Highlights
 
 **Aether Code** is a standalone, high-performance GUI and agent console that brings the power of agentic command-line coding into an ultra-modern Apple Liquid Glass interface with full real-time observability.
@@ -117,19 +121,11 @@ Aether Code includes an active switchboard in the top navigation bar:
 
 ## 💻 Live Bash Terminal Observability
 
-Unlike typical chat applications that hide background commands behind loading spinners, Aether Code mounts a real terminal window for each command:
+Unlike typical chat applications that hide background commands behind loading spinners, Aether Code mounts an authentic terminal window for each command:
 
-```text
-┌── 💻 bash — Bash ────────────────────────────────────────────── [ ✓ EXIT 0 (0.03s) ] ──┐
-│                                                                                        │
-│  manojb@aether:~$ git status --short                                                  │
-│                                                                                        │
-│  M  lib/agy-manager.js                                                                │
-│  M  public/style.css                                                                  │
-│                                                                                        │
-│  Status: Process completed with code 0 • Time: 0.03s                                   │
-└────────────────────────────────────────────────────────────────────────────────────────┘
-```
+<p align="center">
+  <img src="docs/screenshots/aether-code-terminal.png" alt="Live Bash Terminal Window" width="95%" />
+</p>
 
 ---
 
@@ -141,6 +137,10 @@ Click any of the backdrop dots in the top right to change the ambient aesthetic 
 - **Apple Sonoma**: Sunset terracotta, violet, and deep amber warm organic mesh.
 - **Cyber Grid**: High-contrast matrix grid with deep neon focus.
 - **Pearl Light**: Translucent soft luminescence with frosted highlights.
+
+<p align="center">
+  <img src="docs/screenshots/aether-code-sonoma.png" alt="Apple Sonoma Environment" width="95%" />
+</p>
 
 ---
 
@@ -159,12 +159,24 @@ Click any of the backdrop dots in the top right to change the ambient aesthetic 
 
 ---
 
-## 📂 Project Architecture
+## 📂 System Architecture
+
+<p align="center">
+  <a href="docs/ARCHITECTURE.md">
+    <img src="docs/architecture.svg" alt="Aether Code Architecture Diagram" width="95%" />
+  </a>
+</p>
+
+> Detailed architecture specification and Mermaid sequence diagrams available in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ```text
 aether-code/
 ├── bin/
 │   └── aether-code          # Desktop & CLI launcher script
+├── docs/
+│   ├── ARCHITECTURE.md      # Full architecture specification & sequence diagrams
+│   ├── architecture.svg     # High-res vector architecture diagram
+│   └── screenshots/         # Production UI screenshots
 ├── lib/
 │   ├── agy-manager.js       # Spawns agent turns, streams SSE & watches live thoughts
 │   ├── db-reader.js         # Reads sessions, histories, and derives prompt titles
