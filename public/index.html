@@ -134,6 +134,14 @@
             <button class="env-btn" data-env="pearl" title="Pearl Light"></button>
           </div>
 
+          <!-- Reasoning Effort Selector (Fast / Medium / High) -->
+          <select id="effort-select" class="effort-selector" title="Reasoning & Thinking Effort">
+            <option value="low">⚡ Fast (Low)</option>
+            <option value="medium">⚖ Medium</option>
+            <option value="high" selected>🧠 Deep (High)</option>
+            <option value="max">🔥 Max</option>
+          </select>
+
           <!-- Grouped Model Selector -->
           <select id="model-select" class="model-selector" title="Choose Model">
             <!-- Dynamically populated from models with optgroups -->
@@ -143,6 +151,14 @@
             <span>●</span>
             <span id="permissions-label">Auto-Run Tools</span>
           </div>
+
+          <button id="memory-btn" class="icon-btn" title="Session Memory & Key Actions (Recall)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2a5 5 0 0 1 5 5v1h1a3 3 0 0 1 3 3v2a3 3 0 0 1-3 3h-1v1a5 5 0 0 1-10 0v-1H6a3 3 0 0 1-3-3v-2a3 3 0 0 1 3-3h1V7a5 5 0 0 1 5-5z"></path>
+              <line x1="9" y1="11" x2="9" y2="11.01"></line>
+              <line x1="15" y1="11" x2="15" y2="11.01"></line>
+            </svg>
+          </button>
 
           <button id="export-btn" class="icon-btn" title="Export session as Markdown">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -159,6 +175,9 @@
         <div class="messages-wrapper" id="messages-wrapper">
           <!-- Dynamic conversation or Welcome Screen -->
         </div>
+        <button id="jump-bottom-btn" class="jump-bottom-btn" style="display: none;" title="Jump to bottom">
+          <span>↓ Jump to latest</span>
+        </button>
       </div>
 
       <!-- Bottom Input Area -->
@@ -218,6 +237,43 @@
               </button>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Session Memory Drawer -->
+      <div id="memory-drawer" class="memory-drawer" style="display: none;">
+        <div class="memory-drawer-header">
+          <div class="memory-title">
+            <span>🧠 Session Memory & Actions</span>
+          </div>
+          <button id="close-memory-btn" class="icon-btn" title="Close Memory Panel">✕</button>
+        </div>
+        <div class="memory-drawer-body">
+          <div class="memory-section">
+            <div class="memory-section-title">📊 Accomplished</div>
+            <p id="memory-summary" class="memory-summary-text">No actions recorded yet.</p>
+          </div>
+          <div class="memory-section">
+            <div class="memory-section-title">📁 Files Touched</div>
+            <div id="memory-files-list" class="memory-chips-grid"></div>
+          </div>
+          <div class="memory-section">
+            <div class="memory-section-title">💻 Commands Executed</div>
+            <div id="memory-commands-list" class="memory-commands-list"></div>
+          </div>
+          <div class="memory-section">
+            <div class="memory-section-title">📌 Memory Notes</div>
+            <div id="memory-notes-list" class="memory-notes-list"></div>
+            <div class="memory-add-box">
+              <input type="text" id="memory-note-input" placeholder="Add custom memory note..." />
+              <button id="add-memory-note-btn" class="btn-glass">Save</button>
+            </div>
+          </div>
+        </div>
+        <div class="memory-drawer-footer">
+          <button id="recall-memory-btn" class="btn-glass primary" style="width: 100%;">
+            📥 Recall Memory to Prompt Box
+          </button>
         </div>
       </div>
     </main>

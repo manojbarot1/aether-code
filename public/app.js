@@ -34,11 +34,14 @@
   let allModels = [];
   let activeProvider = 'claude';
   let selectedModel = 'claude-sonnet-4-6';
+  let selectedEffort = 'high';
   let skipPermissions = true;
   let currentWorkspace = '/home/manojb';
   let isGenerating = false;
   let activeReader = null;
   let activeAbortController = null;
+  let userScrolledUp = false;
+  let messageQueue = [];
 
   // Tool mapping for clean CLI representation
   const TOOL_NAME_MAP = {
@@ -72,6 +75,10 @@
     if (savedModel) {
       selectedModel = savedModel;
     }
+    const savedEffort = localStorage.getItem('aether_effort');
+    if (savedEffort) {
+      selectedEffort = savedEffort;
+    }
   } catch (e) {
     // Ignore storage issues
   }
@@ -86,9 +93,21 @@
   const historyContainer = document.getElementById('history-container');
   const chatHeaderTitle = document.getElementById('chat-header-title');
   const modelSelect = document.getElementById('model-select');
+  const effortSelect = document.getElementById('effort-select');
   const permissionsToggleBtn = document.getElementById('permissions-toggle-btn');
   const exportBtn = document.getElementById('export-btn');
+  const memoryBtn = document.getElementById('memory-btn');
+  const memoryDrawer = document.getElementById('memory-drawer');
+  const closeMemoryBtn = document.getElementById('close-memory-btn');
+  const memorySummary = document.getElementById('memory-summary');
+  const memoryFilesList = document.getElementById('memory-files-list');
+  const memoryCommandsList = document.getElementById('memory-commands-list');
+  const memoryNotesList = document.getElementById('memory-notes-list');
+  const memoryNoteInput = document.getElementById('memory-note-input');
+  const addMemoryNoteBtn = document.getElementById('add-memory-note-btn');
+  const recallMemoryBtn = document.getElementById('recall-memory-btn');
   const chatContainer = document.getElementById('chat-container');
+  const jumpBottomBtn = document.getElementById('jump-bottom-btn');
   const messagesWrapper = document.getElementById('messages-wrapper');
   const promptInput = document.getElementById('prompt-input');
   const sendBtn = document.getElementById('send-btn');
@@ -175,10 +194,34 @@
 
   function scrollToBottom(force = false) {
     if (!chatContainer) return;
-    const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 120;
-    if (force || isNearBottom) {
+    if (force) {
+      userScrolledUp = false;
+      if (jumpBottomBtn) jumpBottomBtn.style.display = 'none';
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+      return;
+    }
+    if (!userScrolledUp) {
       chatContainer.scrollTop = chatContainer.scrollHeight;
     }
+  }
+
+  if (chatContainer) {
+    chatContainer.addEventListener('scroll', () => {
+      const distFromBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight;
+      if (distFromBottom > 140) {
+        userScrolledUp = true;
+        if (jumpBottomBtn) jumpBottomBtn.style.display = 'inline-flex';
+      } else if (distFromBottom < 50) {
+        userScrolledUp = false;
+        if (jumpBottomBtn) jumpBottomBtn.style.display = 'none';
+      }
+    });
+  }
+
+  if (jumpBottomBtn) {
+    jumpBottomBtn.addEventListener('click', () => {
+      scrollToBottom(true);
+    });
   }
 
   // Update Theme & Engine Switch UI
@@ -503,6 +546,9 @@
       if (res.ok) {
         const data = await res.json();
         renderConversationMessages(data.messages || []);
+        if (memoryDrawer && memoryDrawer.style.display === 'flex') {
+          loadSessionMemory(id);
+        }
       } else {
         messagesWrapper.innerHTML = `<div style="color: var(--status-error); padding: 20px;">Failed to load messages</div>`;
       }
@@ -539,7 +585,11 @@
     renderSidebar(searchInput.value.trim());
     showWelcomeHero();
     promptInput.value = '';
+    adjustInputHeight();
     promptInput.focus();
+    if (memoryDrawer && memoryDrawer.style.display === 'flex') {
+      loadSessionMemory(null);
+    }
   }
 
   // Welcome Hero Screen (Aether Code Unified Agent)
@@ -706,34 +756,62 @@
   // Send Message & Handle Streaming Turn
   async function sendMessage() {
     const text = promptInput.value.trim();
-    if (!text || isGenerating) return;
+    if (!text) return;
 
     if (text === '/clear') {
       promptInput.value = '';
+      adjustInputHeight();
       startNewChat();
       return;
     }
 
     if (text === '/help') {
       promptInput.value = '';
+      adjustInputHeight();
       appendUserMessage('/help');
       appendAssistantMessage({
-        content: `### Aether Code Quick Reference\n\n- **Engines & Providers**:\n  - Use the top switchboard to toggle **Gemini**, **Claude**, or **ChatGPT** ON/OFF.\n  - Click any engine to switch to it instantly.\n\n- **Commands**:\n  - \`/plan <goal>\` — Create step-by-step plan\n  - \`/clear\` — Clear current session\n  - \`/cost\` — Show token and usage metrics\n  - \`/help\` — Show this help screen\n\n- **Hotkeys**:\n  - \`Enter\` — Run command\n  - \`Shift + Enter\` — New line\n  - \`Ctrl + N\` — New session\n  - \`Esc\` — Cancel active execution`
+        content: `### Aether Code Quick Reference\n\n- **Engines & Providers**:\n  - Use the top switchboard to toggle **Gemini**, **Claude**, or **ChatGPT** ON/OFF.\n  - Click any engine to switch to it instantly.\n\n- **Thinking Effort**:\n  - Choose **Fast (Low)**, **Medium**, **Deep (High)**, or **Max** from the header dropdown.\n\n- **Session Memory & Recall**:\n  - Click the brain icon to view files touched, commands executed, or add session notes.\n  - Click "Recall Memory" to inject context directly into your prompt.\n\n- **Live Steering / Queuing**:\n  - Type and send messages while the model is thinking or executing tools (like \`/btw\`). Prompts will queue up and run consecutively!\n\n- **Commands**:\n  - \`/plan <goal>\` — Create step-by-step plan\n  - \`/clear\` — Clear current session\n  - \`/cost\` — Show token and usage metrics\n  - \`/help\` — Show this help screen\n\n- **Hotkeys**:\n  - \`Enter\` — Run prompt or queue next instruction\n  - \`Shift + Enter\` — New line\n  - \`Ctrl + N\` — New session\n  - \`Esc\` — Cancel active execution`
       });
       return;
     }
 
-    // Reset prompt input
+    // Reset prompt input immediately without lag
     promptInput.value = '';
-    promptInput.style.height = 'auto';
+    adjustInputHeight();
     slashMenu.style.display = 'none';
 
-    // Update Chat Header Title to user prompt
-    const cleanTitle = text.replace(/\s+/g, ' ').trim();
-    chatHeaderTitle.textContent = cleanTitle.length > 38 ? cleanTitle.slice(0, 36) + '…' : cleanTitle;
+    // If currently running, queue message gracefully (/btw style)
+    if (isGenerating) {
+      const queuedRow = appendUserMessage(text);
+      queuedRow.classList.add('queued');
+      const bubble = queuedRow.querySelector('.user-prompt-line');
+      if (bubble) {
+        const badge = document.createElement('span');
+        badge.className = 'queued-badge';
+        badge.innerHTML = `⏳ Queued next`;
+        bubble.appendChild(badge);
+      }
+      messageQueue.push({ text, row: queuedRow });
+      scrollToBottom(true);
+      return;
+    }
 
-    // Append User Message
-    appendUserMessage(text);
+    // Run prompt normally
+    await runTurn(text, false, null);
+  }
+
+  // Execute a single streaming turn
+  async function runTurn(text, isQueuedPrompt = false, existingUserRow = null) {
+    // Update Chat Header Title to user prompt if new session
+    const cleanTitle = text.replace(/\s+/g, ' ').trim();
+    if (!currentConversationId || chatHeaderTitle.textContent === 'New Session') {
+      chatHeaderTitle.textContent = cleanTitle.length > 38 ? cleanTitle.slice(0, 36) + '…' : cleanTitle;
+    }
+
+    // Append User Message if not already queued and displayed
+    if (!isQueuedPrompt) {
+      appendUserMessage(text);
+    }
 
     // Prepare Assistant Message Placeholder
     const assistantRow = appendAssistantMessage();
@@ -749,7 +827,7 @@
     isGenerating = true;
     sendBtn.style.display = 'none';
     stopBtn.style.display = 'flex';
-    promptInput.disabled = true;
+    promptInput.placeholder = "Type next instruction (will be queued)...";
 
     let accumulatedThought = '';
     let accumulatedText = '';
@@ -765,6 +843,7 @@
           prompt: text,
           conversationId: currentConversationId,
           model: selectedModel,
+          effort: selectedEffort,
           skipPermissions: skipPermissions,
           cwd: currentWorkspace
         }),
@@ -857,14 +936,27 @@
       }
     } finally {
       removeLiveHud(assistantRow);
-      isGenerating = false;
       activeReader = null;
       activeAbortController = null;
-      sendBtn.style.display = 'flex';
-      stopBtn.style.display = 'none';
-      promptInput.disabled = false;
-      promptInput.focus();
       scrollToBottom();
+
+      // Check if another message was queued mid-turn
+      if (messageQueue.length > 0) {
+        const nextItem = messageQueue.shift();
+        if (nextItem.row) {
+          nextItem.row.classList.remove('queued');
+          const badge = nextItem.row.querySelector('.queued-badge');
+          if (badge) badge.remove();
+        }
+        // Execute next turn seamlessly
+        runTurn(nextItem.text, true, nextItem.row);
+      } else {
+        isGenerating = false;
+        sendBtn.style.display = 'flex';
+        stopBtn.style.display = 'none';
+        promptInput.placeholder = "Ask Aether Code anything... (Enter to run, Shift+Enter for newline)";
+        promptInput.focus();
+      }
     }
   }
 
@@ -1035,11 +1127,119 @@
         });
       } catch (e) {}
     }
+    messageQueue = [];
     isGenerating = false;
     sendBtn.style.display = 'flex';
     stopBtn.style.display = 'none';
-    promptInput.disabled = false;
+    promptInput.placeholder = "Ask Aether Code anything... (Enter to run, Shift+Enter for newline)";
     promptInput.focus();
+  }
+
+  // Session Memory Management
+  async function loadSessionMemory(convId) {
+    if (!convId) {
+      if (memorySummary) memorySummary.textContent = "No active session loaded.";
+      if (memoryFilesList) memoryFilesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;">No files touched</span>';
+      if (memoryCommandsList) memoryCommandsList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;">No commands run</span>';
+      if (memoryNotesList) memoryNotesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;">No notes saved</span>';
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/conversations/${convId}/memory`);
+      if (!res.ok) throw new Error('Failed to load memory');
+      const data = await res.json();
+
+      if (memorySummary) {
+        memorySummary.textContent = data.summary || 'No actions recorded yet.';
+      }
+
+      // Files Touched
+      if (memoryFilesList) {
+        if (data.filesTouched && data.filesTouched.length > 0) {
+          memoryFilesList.innerHTML = data.filesTouched.map(f => {
+            const actionClass = (f.action || '').toLowerCase();
+            const fileName = f.path.split('/').pop() || f.path;
+            return `
+              <div class="memory-chip" title="${escapeHtml(f.path)}">
+                <span class="memory-chip-action ${actionClass}">${escapeHtml(f.action)}</span>
+                <span>${escapeHtml(fileName)}</span>
+              </div>
+            `;
+          }).join('');
+        } else {
+          memoryFilesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;">No files touched yet</span>';
+        }
+      }
+
+      // Commands Run
+      if (memoryCommandsList) {
+        if (data.commandsRun && data.commandsRun.length > 0) {
+          memoryCommandsList.innerHTML = data.commandsRun.map(c => `
+            <div class="memory-cmd-item" title="${escapeHtml(c.cmd)}">
+              ❯ ${escapeHtml(c.cmd)}
+            </div>
+          `).join('');
+        } else {
+          memoryCommandsList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;">No commands run yet</span>';
+        }
+      }
+
+      // Notes
+      if (memoryNotesList) {
+        if (data.customNotes && data.customNotes.length > 0) {
+          memoryNotesList.innerHTML = data.customNotes.map(n => `
+            <div class="memory-note-item">
+              <div>${escapeHtml(n.text)}</div>
+              <div class="memory-note-time">${new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+            </div>
+          `).join('');
+        } else {
+          memoryNotesList.innerHTML = '<span style="color:var(--text-muted);font-size:0.8rem;">No custom notes saved</span>';
+        }
+      }
+    } catch (e) {
+      if (memorySummary) memorySummary.textContent = 'Error loading session memory.';
+    }
+  }
+
+  async function addMemoryNote() {
+    if (!currentConversationId) {
+      alert('Open or start a session first to attach memory notes.');
+      return;
+    }
+    const note = memoryNoteInput ? memoryNoteInput.value.trim() : '';
+    if (!note) return;
+    try {
+      await fetch(`/api/conversations/${currentConversationId}/memory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note })
+      });
+      if (memoryNoteInput) memoryNoteInput.value = '';
+      loadSessionMemory(currentConversationId);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function recallMemoryToPrompt() {
+    if (!currentConversationId) {
+      alert('Open a session with memory first.');
+      return;
+    }
+    fetch(`/api/conversations/${currentConversationId}/memory`)
+      .then(r => r.json())
+      .then(data => {
+        const fileNames = (data.filesTouched || []).map(f => f.path.split('/').pop()).slice(0, 6).join(', ');
+        const cmds = (data.commandsRun || []).map(c => c.cmd).slice(0, 3).join('; ');
+        let recallText = `Recall context from our current session:\n- Touched files: ${fileNames || 'none'}\n- Ran commands: ${cmds || 'none'}\n- Summary: ${data.summary || 'None'}\n\n`;
+        promptInput.value = recallText;
+        promptInput.focus();
+        adjustInputHeight();
+        if (memoryDrawer) memoryDrawer.style.display = 'none';
+      })
+      .catch(() => {});
   }
 
   // Export Conversation to Markdown
@@ -1125,9 +1325,25 @@
   sendBtn.addEventListener('click', sendMessage);
   stopBtn.addEventListener('click', stopGeneration);
 
+  // Optimized Auto-growing Prompt Input (Zero Typing Latency)
+  let lastCalculatedHeight = -1;
+  function adjustInputHeight() {
+    if (!promptInput.value) {
+      promptInput.style.height = '';
+      lastCalculatedHeight = -1;
+      return;
+    }
+    const curScroll = promptInput.scrollHeight;
+    if (curScroll !== lastCalculatedHeight) {
+      promptInput.style.height = 'auto';
+      const target = Math.min(promptInput.scrollHeight, 180);
+      promptInput.style.height = target + 'px';
+      lastCalculatedHeight = target;
+    }
+  }
+
   promptInput.addEventListener('input', () => {
-    promptInput.style.height = 'auto';
-    promptInput.style.height = Math.min(promptInput.scrollHeight, 180) + 'px';
+    adjustInputHeight();
 
     const val = promptInput.value;
     if (val.startsWith('/') && !val.includes(' ')) {
@@ -1136,6 +1352,50 @@
       slashMenu.style.display = 'none';
     }
   });
+
+  // Reasoning Effort Selector
+  if (effortSelect) {
+    effortSelect.value = selectedEffort;
+    effortSelect.addEventListener('change', () => {
+      selectedEffort = effortSelect.value;
+      localStorage.setItem('aether_effort', selectedEffort);
+    });
+  }
+
+  // Session Memory Drawer Bindings
+  if (memoryBtn) {
+    memoryBtn.addEventListener('click', () => {
+      if (memoryDrawer.style.display === 'flex') {
+        memoryDrawer.style.display = 'none';
+      } else {
+        memoryDrawer.style.display = 'flex';
+        loadSessionMemory(currentConversationId);
+      }
+    });
+  }
+
+  if (closeMemoryBtn) {
+    closeMemoryBtn.addEventListener('click', () => {
+      if (memoryDrawer) memoryDrawer.style.display = 'none';
+    });
+  }
+
+  if (addMemoryNoteBtn) {
+    addMemoryNoteBtn.addEventListener('click', addMemoryNote);
+  }
+
+  if (memoryNoteInput) {
+    memoryNoteInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addMemoryNote();
+      }
+    });
+  }
+
+  if (recallMemoryBtn) {
+    recallMemoryBtn.addEventListener('click', recallMemoryToPrompt);
+  }
 
   slashMenu.querySelectorAll('.slash-item').forEach(item => {
     item.addEventListener('click', () => {

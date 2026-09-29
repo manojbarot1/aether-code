@@ -3,7 +3,13 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { runTurn, cancelTurn } = require('./lib/agy-manager');
-const { listConversations, getConversation, deleteConversation } = require('./lib/db-reader');
+const {
+  listConversations,
+  getConversation,
+  deleteConversation,
+  getSessionMemory,
+  saveSessionMemoryNote
+} = require('./lib/db-reader');
 const { getModels } = require('./lib/models');
 
 const PORT = parseInt(process.env.PORT || '4567', 10);
@@ -121,6 +127,24 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { conversations: list });
   }
 
+  const memoryMatch = pathname.match(/^\/api\/conversations\/([a-zA-Z0-9_-]+)\/memory$/);
+  if (memoryMatch && req.method === 'GET') {
+    const convId = memoryMatch[1];
+    const data = getSessionMemory(convId);
+    return sendJson(res, 200, data);
+  }
+
+  if (memoryMatch && req.method === 'POST') {
+    try {
+      const convId = memoryMatch[1];
+      const { note } = await parseBody(req);
+      const data = saveSessionMemoryNote(convId, note);
+      return sendJson(res, 200, data);
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+  }
+
   const convMatch = pathname.match(/^\/api\/conversations\/([a-zA-Z0-9_-]+)$/);
   if (convMatch && req.method === 'GET') {
     const convId = convMatch[1];
@@ -157,6 +181,7 @@ const server = http.createServer(async (req, res) => {
       prompt,
       conversationId,
       model,
+      effort,
       skipPermissions = true,
       sandbox = false,
       mode = null,
@@ -183,6 +208,7 @@ const server = http.createServer(async (req, res) => {
       prompt: prompt.trim(),
       conversationId: conversationId || null,
       model: model || null,
+      effort: effort || null,
       skipPermissions: Boolean(skipPermissions),
       sandbox: Boolean(sandbox),
       mode: mode || null,
