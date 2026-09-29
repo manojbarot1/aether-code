@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Aether Code Desktop Launcher
+set -e
+
+PORT=${AETHER_PORT:-${AGY_GUI_PORT:-4567}}
+SERVER_DIR="/home/manojb/antigravity-gui"
+LOG_FILE="/home/manojb/.gemini/antigravity-cli/aether.log"
+APP_URL="http://127.0.0.1:${PORT}"
+CHROME_PROFILE="/home/manojb/.config/aether-code-chrome"
+
+mkdir -p "$(dirname "$LOG_FILE")"
+mkdir -p "$CHROME_PROFILE"
+
+# Check if command is stop
+if [ "$1" = "stop" ]; then
+  echo "Stopping Aether Code server..."
+  systemctl --user stop aether-code.service 2>/dev/null || true
+  systemctl --user stop agy-gui.service 2>/dev/null || true
+  fuser -k "${PORT}/tcp" 2>/dev/null || true
+  echo "Stopped."
+  exit 0
+fi
+
+# Check if command is restart
+if [ "$1" = "restart" ]; then
+  echo "Restarting Aether Code server..."
+  systemctl --user restart aether-code.service 2>/dev/null || systemctl --user restart agy-gui.service 2>/dev/null || true
+  sleep 1
+  echo "Restarted."
+  exit 0
+fi
+
+# Check if command is status
+if [ "$1" = "status" ]; then
+  if curl -s -f "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
+    echo "Aether Code is running at ${APP_URL}"
+    exit 0
+  else
+    echo "Aether Code is not running."
+    exit 1
+  fi
+fi
+
+# Ensure server is running (prefer systemd user service)
+if ! curl -s -f "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
+  echo "Starting Aether Code server on port ${PORT}..."
+  if systemctl --user is-enabled aether-code.service >/dev/null 2>&1 || [ -f "$HOME/.config/systemd/user/aether-code.service" ]; then
+    systemctl --user start aether-code.service 2>/dev/null || true
+  elif systemctl --user is-enabled agy-gui.service >/dev/null 2>&1 || [ -f "$HOME/.config/systemd/user/agy-gui.service" ]; then
+    systemctl --user start agy-gui.service 2>/dev/null || true
+  else
+    nohup node "${SERVER_DIR}/server.js" < /dev/null >> "$LOG_FILE" 2>&1 &
+    disown $! 2>/dev/null || true
+  fi
+
+  # Wait for server to become ready
+  READY=0
+  for i in $(seq 1 30); do
+    if curl -s -f "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
+      READY=1
+      break
+    fi
+    sleep 0.1
+  done
+
+  if [ $READY -ne 1 ]; then
+    echo "Failed to start Aether Code server. Check logs: ${LOG_FILE}"
+    exit 1
+  fi
+  echo "Server started successfully."
+fi
+
+# Server-only mode
+if [ "$1" = "--server-only" ]; then
+  echo "Server running at ${APP_URL}"
+  exit 0
+fi
+
+# Launch standalone window using Chrome App mode if available
+if command -v google-chrome >/dev/null 2>&1; then
+  setsid google-chrome \
+    --app="${APP_URL}" \
+    --user-data-dir="${CHROME_PROFILE}" \
+    --no-first-run \
+    --no-default-browser-check \
+    --class="AetherCode" \
+    --name="Aether Code" \
+    --window-size=1220,840 \
+    "$@" < /dev/null >/dev/null 2>&1 &
+  echo "Opened Aether Code application window."
+elif command -v chromium >/dev/null 2>&1; then
+  setsid chromium \
+    --app="${APP_URL}" \
+    --user-data-dir="${CHROME_PROFILE}" \
+    --window-size=1220,840 \
+    "$@" < /dev/null >/dev/null 2>&1 &
+  echo "Opened Aether Code application window."
+elif command -v xdg-open >/dev/null 2>&1; then
+  setsid xdg-open "${APP_URL}" < /dev/null >/dev/null 2>&1 &
+  echo "Opened ${APP_URL} in default browser."
+else
+  echo "Open your browser to: ${APP_URL}"
+fi

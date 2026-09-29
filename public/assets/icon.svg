@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%">
+  <defs>
+    <linearGradient id="aetherBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1c1c1b" />
+      <stop offset="100%" stop-color="#121211" />
+    </linearGradient>
+    <linearGradient id="aetherGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#da7756" />
+      <stop offset="100%" stop-color="#10a37f" />
+    </linearGradient>
+    <radialGradient id="coreAura" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#da7756" stop-opacity="0.35" />
+      <stop offset="60%" stop-color="#38bdf8" stop-opacity="0.15" />
+      <stop offset="100%" stop-color="#10a37f" stop-opacity="0" />
+    </radialGradient>
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="3.5" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background rounded canvas -->
+  <rect width="100" height="100" rx="24" fill="url(#aetherBg)" stroke="#2f2f2c" stroke-width="2" />
+
+  <!-- Core Glow -->
+  <circle cx="50" cy="50" r="38" fill="url(#coreAura)" />
+
+  <!-- Outer Orbital Ring -->
+  <ellipse cx="50" cy="50" rx="36" ry="17" fill="none" stroke="url(#aetherGrad)" stroke-width="1.8" opacity="0.65" transform="rotate(-30 50 50)" />
+  <ellipse cx="50" cy="50" rx="36" ry="17" fill="none" stroke="#da7756" stroke-width="1.2" stroke-dasharray="3 4" opacity="0.8" transform="rotate(-30 50 50)" />
+
+  <!-- The 3 Engine Nodes (Gemini Cyan, Claude Terracotta, ChatGPT Emerald) -->
+  <!-- Top Node: Gemini Cyan -->
+  <circle cx="50" cy="22" r="3.5" fill="#38bdf8" filter="url(#softGlow)" />
+  <!-- Bottom Left Node: Claude Terracotta -->
+  <circle cx="28" cy="68" r="3.5" fill="#da7756" filter="url(#softGlow)" />
+  <!-- Bottom Right Node: ChatGPT Emerald -->
+  <circle cx="72" cy="68" r="3.5" fill="#10a37f" filter="url(#softGlow)" />
+
+  <!-- Stylized Central Aether Monogram / Diamond Core -->
+  <g transform="translate(50, 50)" filter="url(#softGlow)">
+    <!-- Central Cardinal Sparkle -->
+    <path d="M 0 -22 C 0.8 -9, 9 -0.8, 22 0 C 9 0.8, 0.8 9, 0 22 C -0.8 9, -9 0.8, -22 0 C -9 -0.8, -0.8 -9, 0 -22 Z" fill="url(#aetherGrad)" />
+    <!-- Inner Radiant Core -->
+    <circle cx="0" cy="0" r="4.5" fill="#ffffff" />
+  </g>
+</svg>

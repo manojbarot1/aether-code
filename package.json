@@ -1,0 +1,37 @@
+{
+  "name": "aether-code",
+  "version": "1.0.0",
+  "description": "Unified AI Coding Agent Console supporting Gemini, Claude, and ChatGPT engines with Liquid Glass UI & Live Terminal Observability",
+  "main": "server.js",
+  "bin": {
+    "aether-code": "./bin/aether-code",
+    "agy-gui": "./bin/aether-code"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "app": "./bin/aether-code",
+    "status": "./bin/aether-code status",
+    "stop": "./bin/aether-code stop"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/manojbarot1/aether-code.git"
+  },
+  "keywords": [
+    "aether-code",
+    "claude",
+    "gemini",
+    "chatgpt",
+    "ai-agent",
+    "glassmorphism",
+    "liquid-glass",
+    "terminal",
+    "coding-agent"
+  ],
+  "author": "Manoj Barot",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/manojbarot1/aether-code/issues"
+  },
+  "homepage": "https://github.com/manojbarot1/aether-code#readme"
+}

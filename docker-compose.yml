@@ -1,0 +1,13 @@
+services:
+  aether-code:
+    build: .
+    container_name: aether-code
+    restart: unless-stopped
+    ports:
+      - "4567:4567"
+    environment:
+      - PORT=4567
+      - NODE_ENV=production
+    volumes:
+      # Mount user's home directory or workspace for agent file access
+      - ${HOME:-/home/manojb}:/workspace
