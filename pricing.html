@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="crystal">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pricing Plans | Aether Liquid Glass</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Fluid Background Blobs -->
+  <div class="liquid-canvas-container">
+    <div class="liquid-blob blob-1"></div>
+    <div class="liquid-blob blob-2"></div>
+    <div class="liquid-blob blob-3"></div>
+    <div class="liquid-blob blob-4"></div>
+  </div>
+
+  <!-- Glass Pill Navbar -->
+  <header class="glass-nav-wrapper">
+    <nav class="glass-navbar">
+      <a href="index.html" class="brand-logo">
+        <div class="brand-icon-glass">💧</div>
+        <span>Aether<span style="color: #38bdf8;">Glass</span></span>
+      </a>
+
+      <button class="mobile-nav-toggle" aria-label="Toggle Navigation">☰</button>
+
+      <ul class="nav-links">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="features.html">Features</a></li>
+        <li><a href="dashboard.html">Dashboard</a></li>
+        <li><a href="pricing.html" class="active">Pricing</a></li>
+        <li><a href="contact.html">Contact</a></li>
+      </ul>
+
+      <div class="nav-actions">
+        <div class="theme-pill-selector">
+          <button class="theme-btn" data-theme="crystal" title="Crystal Twilight">💎</button>
+          <button class="theme-btn" data-theme="aurora" title="Aurora Borealis">🌌</button>
+          <button class="theme-btn" data-theme="nebula" title="Deep Nebula">🪐</button>
+        </div>
+        <a href="dashboard.html" class="btn-glass btn-glass-primary">Launch App</a>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Main Content -->
+  <main class="page-container">
+    
+    <!-- Hero Section -->
+    <section class="hero-section" style="padding-bottom: 20px;">
+      <div class="glass-pill-badge">
+        <span class="badge-pulse-dot"></span>
+        <span>Transparent & Simple Tiers</span>
+      </div>
+
+      <h1 class="hero-title">
+        Pure Optical Value. <br>
+        <span class="liquid-gradient-text">Zero Opaque Friction.</span>
+      </h1>
+
+      <p class="hero-subtitle">
+        Deploy production-grade liquid glass components across your web applications with crystal clear pricing and unlimited scalability.
+      </p>
+
+      <!-- Billing Period Switcher -->
+      <div style="display: inline-flex; align-items: center; gap: 14px; background: rgba(0, 0, 0, 0.35); padding: 6px 14px; border-radius: var(--radius-full); border: 1px solid rgba(255,255,255,0.15);">
+        <span style="font-size: 0.9rem; color: #fff; font-weight: 600;">Monthly</span>
+        <label class="glass-switch" style="transform: scale(0.85);">
+          <input type="checkbox" id="pricing-toggle" onchange="togglePricingPeriod(this.checked)">
+          <span class="glass-switch-slider"></span>
+        </label>
+        <span style="font-size: 0.9rem; color: var(--text-muted); font-weight: 500;">
+          Annual <span class="glass-tag tag-success" style="font-size: 0.72rem; padding: 2px 8px;">Save 25%</span>
+        </span>
+      </div>
+    </section>
+
+    <!-- Pricing Cards Grid -->
+    <section class="pricing-grid">
+      
+      <!-- Starter Plan -->
+      <div class="pricing-card glass-panel liquid-shimmer">
+        <h3 style="font-size: 1.4rem; font-weight: 700; color: #fff;">Starter Glass</h3>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 4px;">For personal projects and prototype interfaces.</p>
+        
+        <div class="pricing-price">
+          <span class="price-val" data-monthly="$19" data-annual="$14">$19</span>
+          <span class="pricing-period">/ month</span>
+        </div>
+
+        <ul class="pricing-features-list">
+          <li><span class="check">✓</span> Up to 5 Glass Viewports</li>
+          <li><span class="check">✓</span> Dual-pass standard backdrop blur</li>
+          <li><span class="check">✓</span> 3 Curated theme presets</li>
+          <li><span class="check">✓</span> Full responsive layouts</li>
+          <li><span style="color: var(--text-faint);">✕ Specular cursor raytracking</span></li>
+          <li><span style="color: var(--text-faint);">✕ Custom chromatic shaders</span></li>
+        </ul>
+
+        <button class="btn-glass" onclick="showGlassToast('Starter plan selected!')" style="width: 100%; margin-top: 10px;">
+          Deploy Starter
+        </button>
+      </div>
+
+      <!-- Pro Liquid (Featured) -->
+      <div class="pricing-card glass-panel featured liquid-shimmer">
+        <span class="featured-badge">Most Popular</span>
+        <h3 style="font-size: 1.4rem; font-weight: 700; color: #fff;">Pro Liquid</h3>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 4px;">For modern production apps & spatial web designs.</p>
+        
+        <div class="pricing-price">
+          <span class="price-val" data-monthly="$49" data-annual="$36" style="color: #38bdf8;">$49</span>
+          <span class="pricing-period">/ month</span>
+        </div>
+
+        <ul class="pricing-features-list">
+          <li><span class="check">✓</span> Unlimited Glass Viewports</li>
+          <li><span class="check">✓</span> Specular mouse tracking sheen</li>
+          <li><span class="check">✓</span> GPU composited 120 FPS shaders</li>
+          <li><span class="check">✓</span> Dynamic fluid mesh animation</li>
+          <li><span class="check">✓</span> Custom chromatic gradient editor</li>
+          <li><span class="check">✓</span> Priority Discord & email relay</li>
+        </ul>
+
+        <button class="btn-glass btn-glass-primary" onclick="showGlassToast('Pro plan selected!')" style="width: 100%; margin-top: 10px;">
+          Upgrade to Pro ⚡
+        </button>
+      </div>
+
+      <!-- Enterprise Spatial -->
+      <div class="pricing-card glass-panel liquid-shimmer">
+        <h3 style="font-size: 1.4rem; font-weight: 700; color: #fff;">Enterprise Spatial</h3>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 4px;">For mission-critical interfaces and large teams.</p>
+        
+        <div class="pricing-price">
+          <span class="price-val" data-monthly="$149" data-annual="$119">$149</span>
+          <span class="pricing-period">/ month</span>
+        </div>
+
+        <ul class="pricing-features-list">
+          <li><span class="check">✓</span> Everything in Pro Liquid</li>
+          <li><span class="check">✓</span> Dedicated optical edge CDN nodes</li>
+          <li><span class="check">✓</span> 99.99% Uptime SLA agreement</li>
+          <li><span class="check">✓</span> Custom WebGL / WebGPU fluid shaders</li>
+          <li><span class="check">✓</span> White-label theme distribution</li>
+          <li><span class="check">✓</span> 24/7 dedicated solutions engineer</li>
+        </ul>
+
+        <a href="contact.html" class="btn-glass" style="width: 100%; margin-top: 10px; text-align: center;">
+          Contact Spatial Sales
+        </a>
+      </div>
+
+    </section>
+
+    <!-- FAQ Section -->
+    <section style="margin: 90px 0;">
+      <div style="text-align: center; margin-bottom: 40px;">
+        <span class="glass-tag tag-purple">FAQ</span>
+        <h2 style="font-size: 2rem; margin-top: 8px;">Frequently Asked Questions</h2>
+      </div>
+
+      <div class="showcase-grid">
+        <div class="glass-card">
+          <h3 style="font-size: 1.15rem;">How does Liquid Glass perform on mobile?</h3>
+          <p>Our shaders are built on native hardware-accelerated CSS <code>backdrop-filter</code> and CSS transform layers. On iOS and Android devices, it delivers silky smooth 60 FPS scrolling with minimal battery draw.</p>
+        </div>
+
+        <div class="glass-card">
+          <h3 style="font-size: 1.15rem;">Is there a fallback for older browsers?</h3>
+          <p>Yes. If a client browser does not support optical backdrop filters, our CSS automatically gracefully degrades to clean semi-translucent dark panels with full text contrast.</p>
+        </div>
+
+        <div class="glass-card">
+          <h3 style="font-size: 1.15rem;">Can I customize the iridescent color palettes?</h3>
+          <p>Absolutely. All gradient mesh blobs, border highlights, and specular reflections are bound to standard CSS Custom Properties that can be altered in real time.</p>
+        </div>
+
+        <div class="glass-card">
+          <h3 style="font-size: 1.15rem;">Can I switch between monthly and annual plans?</h3>
+          <p>Yes, you can upgrade, downgrade, or switch billing intervals at any point directly from the live dashboard console without any service disruption.</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Glass Footer -->
+  <footer class="glass-footer">
+    <div class="footer-content">
+      <div class="brand-logo">
+        <div class="brand-icon-glass">💧</div>
+        <span>AetherGlass</span>
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="features.html">Features</a>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="pricing.html">Pricing</a>
+        <a href="contact.html">Contact</a>
+      </div>
+      <div class="footer-copy">
+        © 2026 Aether-Lite. Liquid Glass Design System.
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+  <script>
+    function togglePricingPeriod(isAnnual) {
+      document.querySelectorAll(".price-val").forEach(el => {
+        el.textContent = isAnnual ? el.dataset.annual : el.dataset.monthly;
+      });
+      showGlassToast(isAnnual ? "Switched to Annual billing (25% off)" : "Switched to Monthly billing");
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aether Lite</title>
+<style>
+:root{color-scheme:light dark;
+  --font:-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,sans-serif;--mono:ui-monospace,'SF Mono',Menlo,monospace;
+  --r-xl:28px;--r-lg:22px;--r-md:16px;--r-sm:12px;--r-pill:999px;
+  --spring:cubic-bezier(.34,1.56,.64,1);--ease:cubic-bezier(.22,1,.36,1);
+  --bg-solid:#e8edf7;--ambient-a:#7aa2ff;--ambient-b:#c08bff;--ambient-c:#6fe3d4;--ambient-d:#ffb38a;--ambient-opacity:.55;
+  --glass:rgba(255,255,255,.42);--glass-strong:rgba(255,255,255,.66);--glass-sunken:rgba(255,255,255,.28);--glass-hover:rgba(255,255,255,.58);
+  --glass-rim:rgba(255,255,255,.85);--glass-rim-soft:rgba(255,255,255,.35);--glass-line:rgba(15,23,42,.07);
+  --glass-shadow:0 1px 1px rgba(15,23,42,.04),0 10px 30px -8px rgba(30,41,80,.18);--specular:rgba(255,255,255,.75);
+  --text:#0c1324;--text-2:rgba(12,19,36,.64);--text-3:rgba(12,19,36,.42);
+  --accent:#2f6bff;--accent-2:#8b5cf6;--accent-soft:rgba(47,107,255,.14);--ok:#129a52;--err:#d42c2c;--err-soft:rgba(212,44,44,.13);--warn:#c27406;
+  --code-bg:rgba(15,23,42,.08)}
+@media (prefers-color-scheme:dark){:root{
+  --bg-solid:#0b0e17;--ambient-a:#2f4fd8;--ambient-b:#7c3aed;--ambient-c:#0f9f8f;--ambient-d:#b4532a;--ambient-opacity:.42;
+  --glass:rgba(28,32,46,.42);--glass-strong:rgba(36,41,58,.66);--glass-sunken:rgba(10,12,20,.28);--glass-hover:rgba(52,58,80,.5);
+  --glass-rim:rgba(255,255,255,.22);--glass-rim-soft:rgba(255,255,255,.06);--glass-line:rgba(255,255,255,.07);
+  --glass-shadow:0 1px 1px rgba(0,0,0,.2),0 12px 32px -8px rgba(0,0,0,.5);--specular:rgba(255,255,255,.16);
+  --text:#f2f4fa;--text-2:rgba(242,244,250,.66);--text-3:rgba(242,244,250,.4);
+  --accent:#5b8cff;--accent-2:#a78bfa;--accent-soft:rgba(91,140,255,.18);--ok:#34d17f;--err:#ff6363;--err-soft:rgba(255,99,99,.15);--warn:#f5a524;
+  --code-bg:rgba(0,0,0,.3)}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:transparent}
+body{font-family:var(--font);font-size:13.5px;line-height:1.45;color:var(--text);-webkit-font-smoothing:antialiased;overflow:hidden;user-select:none;-webkit-user-select:none;cursor:default}
+input,textarea,select,button{font:inherit;color:inherit}input,textarea{user-select:text;-webkit-user-select:text}
+::selection{background:var(--accent-soft)}
+/* ambient light field */
+.ambient{position:fixed;inset:-20%;z-index:-1;opacity:var(--ambient-opacity);filter:blur(80px) saturate(140%);pointer-events:none}
+.ambient i{position:absolute;border-radius:50%;animation:drift 38s var(--ease) infinite alternate}
+.ambient i:nth-child(1){width:52vw;height:52vw;left:6%;top:4%;background:var(--ambient-a)}
+.ambient i:nth-child(2){width:44vw;height:44vw;right:4%;top:18%;background:var(--ambient-b);animation-duration:46s;animation-delay:-12s}
+.ambient i:nth-child(3){width:40vw;height:40vw;left:28%;bottom:0;background:var(--ambient-c);animation-duration:52s;animation-delay:-24s}
+.ambient i:nth-child(4){width:26vw;height:26vw;right:22%;bottom:10%;background:var(--ambient-d);animation-duration:41s;animation-delay:-6s;opacity:.7}
+@keyframes drift{0%{transform:translate(0,0) scale(1)}50%{transform:translate(6vw,-4vh) scale(1.08)}100%{transform:translate(-4vw,5vh) scale(.94)}}
+/* glass surface with rim light + specular */
+.glass{position:relative;isolation:isolate;background:var(--glass);-webkit-backdrop-filter:blur(30px) saturate(185%);backdrop-filter:blur(30px) saturate(185%);
+  border-radius:var(--r-lg);box-shadow:var(--glass-shadow),inset 0 0 0 .5px var(--glass-line)}
+.glass.strong{background:var(--glass-strong)}
+.glass.sunken{background:var(--glass-sunken);box-shadow:inset 0 1px 2px rgba(0,0,0,.06),inset 0 0 0 .5px var(--glass-line)}
+.glass::before{content:'';position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;z-index:1;
+  background:linear-gradient(150deg,var(--glass-rim) 0%,var(--glass-rim-soft) 28%,transparent 52%,var(--glass-rim-soft) 82%,var(--glass-rim) 100%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
+.glass::after{content:'';position:absolute;inset:0;border-radius:inherit;background:radial-gradient(120% 60% at 20% -10%,var(--specular),transparent 55%);opacity:.55;pointer-events:none;z-index:-1}
+.glass.sunken::after,.glass.flat::after{display:none}
+/* buttons */
+.btn{--h:34px;position:relative;isolation:isolate;display:inline-flex;align-items:center;justify-content:center;gap:7px;height:var(--h);padding:0 15px;border:0;border-radius:var(--r-pill);
+  background:var(--glass);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);
+  box-shadow:0 1px 2px rgba(15,23,42,.06),inset 0 0 0 .5px var(--glass-line),inset 0 1px 0 var(--glass-rim-soft);font-weight:560;font-size:13px;white-space:nowrap;cursor:pointer;
+  transition:transform .35s var(--spring),background .2s,box-shadow .2s,opacity .2s}
+.btn:hover{background:var(--glass-hover)}.btn:active{transform:scale(.96);transition-duration:.12s}
+.btn.sm{--h:28px;padding:0 11px;font-size:12px}.btn.icon{padding:0;width:var(--h)}
+.btn.primary{color:#fff;background:linear-gradient(180deg,rgba(255,255,255,.28),rgba(255,255,255,0) 55%),linear-gradient(135deg,var(--accent),var(--accent-2));
+  box-shadow:0 6px 18px -6px color-mix(in srgb,var(--accent) 70%,transparent),inset 0 1px 0 rgba(255,255,255,.45),inset 0 0 0 .5px rgba(255,255,255,.2)}
+.btn.primary:hover{filter:brightness(1.07) saturate(1.05)}
+.btn.danger{color:var(--err)}.btn.danger:hover{background:var(--err-soft)}
+.btn.ghost{background:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}.btn.ghost:hover{background:var(--glass-hover)}
+/* inputs */
+.field{height:34px;width:100%;padding:0 14px;border:0;border-radius:var(--r-sm);background:var(--glass-sunken);box-shadow:inset 0 1px 2px rgba(0,0,0,.06),inset 0 0 0 .5px var(--glass-line);outline:none;transition:box-shadow .2s}
+.field::placeholder{color:var(--text-3)}.field:focus{box-shadow:inset 0 0 0 1.5px var(--accent),0 0 0 4px var(--accent-soft)}
+select.field{appearance:none;padding-right:28px;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23888' stroke-width='1.6'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 11px center}
+select.field option{color:#111}
+.segmented{display:inline-flex;padding:3px;gap:2px;border-radius:var(--r-pill);background:var(--glass-sunken);box-shadow:inset 0 0 0 .5px var(--glass-line)}
+.segmented button{height:28px;padding:0 13px;border:0;border-radius:var(--r-pill);background:transparent;color:var(--text-2);font-size:12.5px;font-weight:560;cursor:pointer;transition:background .25s var(--ease),color .2s,box-shadow .25s}
+.segmented button:hover{color:var(--text)}
+.segmented button[aria-pressed=true]{color:var(--text);background:var(--glass-strong);box-shadow:0 1px 3px rgba(15,23,42,.1),inset 0 0 0 .5px var(--glass-line),inset 0 1px 0 var(--glass-rim-soft)}
+.badge{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 8px;border-radius:var(--r-pill);font-size:11px;font-weight:600;background:var(--glass-sunken);color:var(--text-2)}
+.badge.ok{background:rgba(52,209,127,.16);color:var(--ok)}.badge.err{background:var(--err-soft);color:var(--err)}.badge.warn{background:rgba(245,165,36,.16);color:var(--warn)}
+.badge.accent{background:var(--accent-soft);color:var(--accent)}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--glass-line);border-radius:10px;border:3px solid transparent;background-clip:content-box}::-webkit-scrollbar-track{background:transparent}
+@keyframes rise{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:none}}
+@keyframes pulse{70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+/* layout */
+#app{display:grid;grid-template-columns:248px 1fr;gap:12px;height:100vh;padding:12px}
+#side{display:flex;flex-direction:column;padding:16px 10px 12px;border-radius:var(--r-xl);min-height:0;overflow:hidden}
+#main{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;border-radius:var(--r-xl)}
+.brand{display:flex;align-items:center;gap:11px;padding:0 8px 14px}
+.orb{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;color:#fff;font-size:17px;
+  background:radial-gradient(circle at 30% 25%,rgba(255,255,255,.55),transparent 45%),linear-gradient(140deg,var(--accent),var(--accent-2));
+  box-shadow:0 6px 16px -4px color-mix(in srgb,var(--accent) 60%,transparent),inset 0 1px 0 rgba(255,255,255,.5)}
+.bn{font-weight:700;font-size:15px;letter-spacing:-.02em}.bs{font-size:11px;color:var(--text-3)}
+.sec{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);padding:12px 12px 6px;display:flex;justify-content:space-between;align-items:center}
+.list{overflow:auto;min-height:0}
+.item{position:relative;display:flex;align-items:center;gap:10px;min-height:36px;padding:4px 12px;border-radius:var(--r-sm);color:var(--text-2);font-weight:560;cursor:pointer;transition:background .2s,color .2s,transform .35s var(--spring)}
+.item:hover{background:var(--glass-hover);color:var(--text)}.item:active{transform:scale(.97)}
+.item.on{color:var(--text);background:var(--glass-strong);box-shadow:0 1px 3px rgba(15,23,42,.08),inset 0 0 0 .5px var(--glass-line),inset 0 1px 0 var(--glass-rim-soft)}
+.item .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .x{opacity:0;color:var(--text-3);padding:0 4px}.item:hover .x{opacity:1}
+.av{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:13px;flex:none;box-shadow:inset 0 1px 1px rgba(255,255,255,.5),0 3px 8px -3px rgba(0,0,0,.35)}
+.eng:not(.on) .av{filter:grayscale(.8) opacity(.55)}.eng:not(.on){opacity:.7}
+.av{position:relative}.sdot{position:absolute;right:-2px;bottom:-2px;width:10px;height:10px;border-radius:50%;border:2px solid var(--bg-solid);background:#8a8f9c}.sdot.online{background:var(--ok);box-shadow:0 0 6px var(--ok)}.sdot.login{background:var(--warn)}.sdot.missing,.sdot.offline{background:var(--err)}
+.stat{font-size:11px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--text-2);cursor:pointer}
+.eng .sub{font-size:11px;font-weight:450;color:var(--text-3);line-height:1.15}
+#bar{display:flex;gap:8px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--glass-line);flex-wrap:wrap}
+#title{font-weight:650;font-size:15px;letter-spacing:-.015em;margin-right:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:32%}
+#bar .field{width:auto}#cwd{max-width:210px;cursor:pointer;text-overflow:ellipsis}
+#msgs{flex:1;overflow:auto;padding:20px 22px;display:flex;flex-direction:column;gap:14px;user-select:text;-webkit-user-select:text}
+#msgs>*{flex-shrink:0}
+.empty{margin:auto;text-align:center;color:var(--text-3);max-width:380px}.empty b{display:block;font-size:26px;letter-spacing:-.025em;color:var(--text);margin-bottom:8px}
+.m{display:flex;gap:10px;max-width:900px;width:100%;animation:rise .45s var(--ease) both}.m.user{align-self:flex-end;flex-direction:row-reverse;width:auto}
+.bub{padding:9px 14px;border-radius:var(--r-md);min-width:0;max-width:100%;overflow-wrap:anywhere}
+.m.user .bub{color:#fff;background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,0) 55%),linear-gradient(135deg,var(--accent),var(--accent-2));box-shadow:0 6px 18px -8px var(--accent),inset 0 1px 0 rgba(255,255,255,.4);border-bottom-right-radius:5px}
+.m:not(.user) .bub{flex:1;background:var(--glass);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);box-shadow:var(--glass-shadow),inset 0 0 0 .5px var(--glass-line),inset 0 1px 0 var(--glass-rim-soft);border-bottom-left-radius:5px}
+.who{font-size:12px;font-weight:650;color:var(--text-2);margin-bottom:2px;display:flex;gap:6px;align-items:center}
+.phase{align-self:center;display:flex;align-items:center;gap:8px;padding:5px 14px;border-radius:var(--r-pill);font-size:12px;font-weight:600;color:var(--text-2);background:var(--glass-sunken);box-shadow:inset 0 0 0 .5px var(--glass-line)}
+.bub p{margin:.35em 0}.bub ul,.bub ol{margin:.35em 0 .35em 1.3em}
+.bub code{font:12.5px var(--mono);background:var(--code-bg);padding:1px 5px;border-radius:6px}
+.bub pre{background:var(--code-bg);box-shadow:inset 0 0 0 .5px var(--glass-line);border-radius:var(--r-sm);padding:10px 12px;overflow:auto;margin:.5em 0}.bub pre code{background:none;padding:0}
+.bub a{color:var(--accent)}.shell pre{white-space:pre-wrap;margin:0}
+.tool{margin:6px 0;border-radius:var(--r-sm);background:var(--glass-sunken);box-shadow:inset 0 0 0 .5px var(--glass-line);overflow:hidden;font-size:12.5px}
+.tool>div{padding:5px 11px;display:flex;gap:8px;align-items:center;cursor:pointer}
+.tool .nm{font-weight:650}.tool .cmd{font-family:var(--mono);font-size:11.5px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.tool pre{margin:0;border-radius:0;max-height:220px;display:none;font-size:12px;white-space:pre-wrap}.tool.open pre{display:block}
+.sdot.limit{background:var(--warn)}.st-running{color:var(--accent)}.st-done{color:var(--ok)}.st-error{color:var(--err)}
+.cursor::after{content:"▍";animation:b 1s steps(1) infinite;color:var(--text-3)}@keyframes b{50%{opacity:0}}
+#chips{padding:6px 18px 0;font-size:12px;color:var(--text-3)}
+#comp{padding:10px 14px 14px;display:flex;gap:10px;align-items:flex-end;position:relative}
+#in{flex:1;resize:none;max-height:180px;height:40px;border-radius:var(--r-md);padding:10px 16px;border:0;outline:none;background:var(--glass-sunken);box-shadow:inset 0 1px 2px rgba(0,0,0,.06),inset 0 0 0 .5px var(--glass-line)}
+#in:focus{box-shadow:inset 0 0 0 1.5px var(--accent),0 0 0 4px var(--accent-soft)}
+#comp .btn{--h:40px;padding:0 22px}
+#hint{position:absolute;left:14px;bottom:60px;display:none;padding:6px;z-index:5;min-width:160px}
+#modal{position:fixed;inset:0;background:rgba(10,14,28,.35);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;place-items:center;z-index:10}#modal.show{display:grid}
+#card{width:min(520px,92vw);max-height:86vh;overflow:auto;padding:22px;border-radius:var(--r-xl);background:var(--glass-strong);animation:rise .4s var(--ease)}
+#card h3{margin:0 0 12px;font-size:17px;letter-spacing:-.015em}
+.f{display:grid;grid-template-columns:110px 1fr;gap:8px;align-items:center;margin:8px 0}.f label{color:var(--text-2);font-size:12.5px}
+.row{display:flex;gap:8px;margin-top:16px;justify-content:flex-end}
+.mem{display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--glass-line)}.mem>span{flex:1}
+.sm{font-size:12px;color:var(--text-3)}
+
+.actv{margin:4px 0;border-radius:var(--r-sm);background:var(--glass-sunken);box-shadow:inset 0 0 0 .5px var(--glass-line)}
+.actv>.sum{cursor:pointer;padding:5px 10px;display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text-2);list-style:none}
+.actv>.sum::before{content:'▸';opacity:.6;transition:transform .15s;font-size:10px}.actv.open>.sum::before{transform:rotate(90deg)}.actv>.sum{user-select:none;-webkit-user-select:none}
+.actv .now{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.actv .el{color:var(--text-3);font-variant-numeric:tabular-nums}
+.steps{padding:4px 8px 8px;display:none;flex-direction:column;gap:6px;max-height:320px;overflow:auto}
+.actv.open .steps{display:flex}
+.step.th{font-size:12px;color:var(--text-2);border-left:2px solid var(--accent);padding:2px 10px;white-space:pre-wrap}
+.step.th b{display:block;font-size:10.5px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em}
+.spin{width:11px;height:11px;border-radius:50%;border:2px solid var(--glass-line);border-top-color:var(--accent);animation:aespin .8s linear infinite;flex:none}@keyframes aespin{to{transform:rotate(360deg)}}
+.actv .ok{color:var(--ok)}.actv .bad{color:var(--err)}
+#progress{display:flex;gap:6px;flex-wrap:wrap;padding:6px 12px 0}#progress:empty{display:none}
+.pchip{display:flex;gap:7px;align-items:center;padding:3px 10px;border-radius:var(--r-pill);background:var(--glass-sunken);box-shadow:inset 0 0 0 .5px var(--glass-line);font-size:11.5px;cursor:pointer;max-width:100%}
+.pchip .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:230px;color:var(--text-2)}.pchip .e{color:var(--text-3);font-variant-numeric:tabular-nums}
+.pchip.ph{cursor:default;background:var(--accent-soft);color:var(--accent);font-weight:600}
+#jump{position:absolute;left:50%;transform:translateX(-50%);bottom:132px;z-index:6;box-shadow:0 8px 22px -6px rgba(0,0,0,.45)}#jump[hidden]{display:none}
+</style></head>
+<body>
+<div class="ambient"><i></i><i></i><i></i><i></i></div>
+<div id="app">
+  <aside id="side" class="glass">
+    <div class="brand"><div class="orb">✦</div><div><div class="bn">Aether Lite</div><div class="bs">AI engineering team</div></div></div>
+    <button class="btn primary" onclick="newSession()">＋ New session</button>
+    <div class="sec">Sessions</div>
+    <div id="sessions" class="list" style="flex:1"></div>
+    <div class="sec">Engineers <span class="stat" id="stat" onclick="refreshStatus()" title="Click to re-check"></span> <button class="btn sm icon ghost" onclick="editEngineer()" title="Add engineer">＋</button></div>
+    <div id="engs" class="list" style="max-height:34%"></div>
+    <div style="display:flex;gap:6px;margin-top:10px">
+      <button class="btn sm" style="flex:1" onclick="memModal()">🧠 Memory</button>
+      <button class="btn sm" style="flex:1" onclick="sshModal()">🔌 SSH</button>
+    </div>
+  </aside>
+  <section id="main" class="glass strong">
+    <div id="bar">
+            <span class="title" id="title" ondblclick="renameCur()" title="Double-click to rename"></span>
+      <div class="segmented" id="teamseg" title="Team: big jobs are split between engineers; questions and small jobs go to one engineer. Solo: one engineer always."><button id="solo" onclick="setTeam(false)">Solo</button><button id="team" onclick="setTeam(true)">Team</button></div>
+      <select id="target" class="field" onchange="setSet()" title="Where commands run"></select>
+      <input class="field" id="cwd" class="field" readonly onclick="pickDir()" title="Working directory — click to change">
+      <select id="mode" class="field" onchange="setSet()" title="What engineers may do">
+        <option value="chat">Chat only</option><option value="plan">Plan (read files)</option>
+        <option value="edit">Edit files</option><option value="auto">Auto (run commands)</option></select>
+        <div class="segmented" id="apprseg" title="Auto: engineers' commands run without asking (only catastrophic ones like sudo or wiping the disk still ask). Ask: every command needs your OK."><button id="ap-on" onclick="setAppr('full')">⚡ Auto</button><button id="ap-off" onclick="setAppr('ask')">Ask</button></div>
+    </div>
+    <div id="msgs"></div>
+    <div id="progress"></div>
+<button id="jump" class="btn sm primary" hidden onclick="jumpLatest()">↓ Latest activity</button>
+<div id="chips"></div>
+    <div id="comp">
+      <div id="hint" class="glass"></div>
+      <textarea id="in" rows="1" placeholder="Message the team…  @name to target · !cmd to run a shell command · /remember …"></textarea>
+      <button id="go" class="btn primary" onclick="send()">Send</button>
+    </div>
+  </section>
+</div>
+<div id="modal" onclick="if(event.target===this)closeModal()"><div id="card" class="glass"></div></div>
+
+<script src="ctxmenu.js"></script>
+<script>
+let S={status:{engineers:{},ssh:{}},cfg:{engineers:[],ssh:[]},sessions:[],cur:null,memory:[],busy:false,home:''};
+const $=id=>document.getElementById(id);
+const api=()=>window.pywebview.api;
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const eng=id=>S.cfg.engineers.find(e=>e.id===id);
+const engByName=n=>S.cfg.engineers.find(e=>e.name===n);
+
+function md(src){
+  const blocks=[];src=String(src||'').replace(/```(\w*)\n?([\s\S]*?)```/g,(_,l,c)=>{blocks.push(c.replace(/\n$/,''));return `\u0000${blocks.length-1}\u0000`});
+  let h=esc(src).replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>')
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" target="_blank">$1</a>');
+  const out=[];let list=null;
+  for(const ln of h.split('\n')){
+    const li=ln.match(/^\s*(?:[-*]|\d+\.)\s+(.*)/);
+    if(li){const t=/^\s*\d/.test(ln)?'ol':'ul';if(list!==t){if(list)out.push(`</${list}>`);out.push(`<${t}>`);list=t}out.push(`<li>${li[1]}</li>`);continue}
+    if(list){out.push(`</${list}>`);list=null}
+    const hd=ln.match(/^#{1,4}\s+(.*)/);out.push(hd?`<p><b>${hd[1]}</b></p>`:(ln.trim()?`<p>${ln}</p>`:''));
+  }
+  if(list)out.push(`</${list}>`);
+  return out.join('').replace(/\u0000(\d+)\u0000/g,(_,i)=>`<pre><code>${esc(blocks[i])}</code></pre>`).replace(/<p>(<pre>[\s\S]*?<\/pre>)<\/p>/g,'$1');
+}
+
+// ── rendering
+function avatar(name){const e=engByName(name);return e?`<div class="av" style="background:${e.color}">${esc(e.avatar||'●')}</div>`:`<div class="av" style="background:#64748b">›</div>`}
+function toolHtml(t){return `<div class="tool" id="t-${esc(t.id)}"><div onclick="this.parentNode.classList.toggle('open')"><span class="st-${t.state}">${t.state==='running'?'◔':t.state==='done'?'✓':'✕'}</span><span class="nm">${esc(t.name)}</span><span class="cmd">${esc(t.command)}</span></div><pre>${esc(t.output||'')}</pre></div>`}
+function msgHtml(m){
+  if(m.role==='user')return `<div class="m user" data-id="${m.id}"><div class="bub">${esc(m.content).replace(/\n/g,'<br>')}</div></div>`;
+  if(m.role==='system')return m.author==='Team'?`<div class="phase" data-id="${m.id}">${esc(m.content)}</div>`:`<div class="m" data-id="${m.id}"><div class="bub sm">${esc(m.content)}</div></div>`;
+  if(m.role==='shell'||m.meta?.shell)return `<div class="m" data-id="${m.id}">${avatar('')}<div class="bub shell"><div class="who">Shell</div><pre><code>${esc(m.content)}</code></pre></div></div>`;
+  const act=activityHtml(m.meta||{});
+  const vd=(m.content||'').match(/VERDICT:\s*(PASS|FAIL|UNVERIFIED)/);const vb=vd?`<span class="badge ${vd[1]==='PASS'?'ok':vd[1]==='FAIL'?'err':'warn'}">${vd[1]==='PASS'?'✓ verified':vd[1]==='FAIL'?'✕ failed':'unverified'}</span>`:'';
+  return `<div class="m" data-id="${m.id}">${avatar(m.author)}<div class="bub"><div class="who">${esc(m.author)}${m.meta?.phase?`<span class="badge accent">${m.meta.phase}</span>`:''}${vb}</div>${act}<div class="body">${md(m.content)}</div></div></div>`;
+}
+function activityHtml(meta,live){const tools=meta.tools||[];const th=(meta.thoughts||'').trim();if(!tools.length&&!th&&!live)return'';
+  const n=tools.length+(th?1:0);
+  return `<div class="actv"><div class="sum">${live?'<span class="spin"></span>':`<span class="${meta.error&&meta.error!=='Stopped'?'bad':'ok'}">${meta.error&&meta.error!=='Stopped'?'✕':'✓'}</span>`}<span class="now">${live?'Starting…':`${n} step${n===1?'':'s'}${meta.dur?` · ${meta.dur}s`:''}`}</span><span class="el"></span></div><div class="steps">${th?`<div class="step th"><b>Thinking</b>${esc(th)}</div>`:''}${tools.map(toolHtml).join('')}</div></div>`}
+document.addEventListener('click',e=>{const s=e.target.closest&&e.target.closest('.actv>.sum');if(s)s.parentElement.classList.toggle('open')});
+let PH='',stick=true;
+function scroll(force){const e=$('msgs');if(force)stick=true;if(stick)e.scrollTop=e.scrollHeight;const j=$('jump');if(j)j.hidden=stick||!S.busy}
+function jumpLatest(){scroll(true)}
+(function(){const e=document.getElementById('msgs');if(e)e.addEventListener('scroll',()=>{stick=e.scrollHeight-e.scrollTop-e.clientHeight<70;const j=$('jump');if(j)j.hidden=stick||!S.busy})})();
+function fmtEl(t0){const s=Math.round((Date.now()-t0)/1000);return s<60?s+'s':Math.floor(s/60)+'m '+(s%60)+'s'}
+function nowText(box,txt){const n=box.el.querySelector('.now');if(n&&box.state!==txt){n.textContent=txt;box.state=txt}}
+function renderProgress(){const p=$('progress');if(!p)return;const ls=Object.entries(live).filter(([,b])=>!b.shell);
+  p.innerHTML=ls.length?(PH?`<span class="pchip ph">${esc(PH)}</span>`:'')+ls.map(([id,b])=>`<span class="pchip" data-m="${id}"><span class="spin"></span><b>${esc(b.author)}</b><span class="t">${esc(b.step||'Starting…')}</span><span class="e">${fmtEl(b.t0)}</span></span>`).join(''):''}
+document.addEventListener('click',e=>{const c=e.target.closest&&e.target.closest('.pchip[data-m]');if(c&&live[c.dataset.m]){live[c.dataset.m].el.scrollIntoView({behavior:'smooth',block:'center'});const d=live[c.dataset.m].el.querySelector('.actv');if(d)d.classList.add('open')}});
+setInterval(()=>{for(const b of Object.values(live)){if(!b.shell){const el=b.el.querySelector('.el');if(el)el.textContent=fmtEl(b.t0)}}renderProgress()},1000);
+
+function renderMsgs(ms){
+  $('msgs').innerHTML=ms.length?ms.map(msgHtml).join(''):`<div class="empty"><b>Aether Lite</b>Ask the team anything. Use @name to pick an engineer.</div>`;scroll();
+}
+function renderSide(){
+  const live_=S.sessions.filter(x=>!x.archived),arch=S.sessions.filter(x=>x.archived);
+  const row=(x,a)=>`<div class="item ${x.id===S.cur?.id?'on':''}" onclick="openSession('${x.id}')" title="${esc(x.summary||x.title)}"><span class="t">${esc(x.title)}</span><span class="x" title="Rename" onclick="event.stopPropagation();renameSession('${x.id}')">✎</span><span class="x" title="${a?'Restore':'Archive'}" onclick="event.stopPropagation();archiveSession('${x.id}',${!a})">${a?'↩':'🗄'}</span><span class="x" title="Delete" onclick="event.stopPropagation();delSession('${x.id}')">✕</span></div>`;
+  $('sessions').innerHTML=live_.map(x=>row(x,false)).join('')+(arch.length?`<div class="sec" style="cursor:pointer" onclick="S.showArch=!S.showArch;renderSide()">${S.showArch?'▾':'▸'} Archived (${arch.length})</div>`+(S.showArch?arch.map(x=>row(x,true)).join(''):''):'');
+  const act=S.cur?.settings.active||[];
+  $('engs').innerHTML=S.cfg.engineers.map(e=>`<div class="item eng ${act.includes(e.id)?'on':''}" onclick="toggleEng('${e.id}')"><div class="av" style="background:${e.color}">${esc(e.avatar||'●')}<i class="sdot ${(S.status.engineers[e.id]||{}).state||''}" title="${esc((S.status.engineers[e.id]||{}).detail||'checking…')}"></i></div><div class="t"><div>${esc(e.name)}${act[0]===e.id&&act.length>1&&S.cur.settings.team?' <span class="badge accent">lead</span>':''}</div><div class="sub">${esc(e.role)}</div></div><span class="x" onclick="event.stopPropagation();editEngineer('${e.id}')">✎</span></div>`).join('');
+  $('title').textContent=S.cur?.title||'';{const on=((S.cur?.settings.autoapprove)||'full')!=='ask';if($('ap-on')){$('ap-on').setAttribute('aria-pressed',on);$('ap-off').setAttribute('aria-pressed',!on)}}
+  const es=S.cfg.engineers,on=es.filter(e=>(S.status.engineers[e.id]||{}).state==='online').length;
+  $('stat').innerHTML=Object.keys(S.status.engineers).length?`<span style="color:${on===es.length?'var(--ok)':on?'var(--warn)':'var(--err)'}">●</span> ${on}/${es.length} online`:'checking…';
+  $('target').innerHTML='<option value="local">💻 This Mac</option>'+S.cfg.ssh.map(h=>`<option value="${h.id}">${({online:'🟢',offline:'🔴'})[(S.status.ssh[h.id]||{}).state]||'⚪️'} ${esc(h.name)}</option>`).join('');
+  const st=S.cur?.settings||{};$('target').value=st.target||'local';$('mode').value=st.mode||'edit';const tg=S.cfg.ssh.find(h=>h.id===st.target);$('cwd').value=tg?(st.rcwd||tg.cwd||'~'):(st.cwd||'');$('cwd').title=tg?'Folder on '+tg.name+' — click to change':'Working directory — click to change';
+  const tm=!!st.team&&act.length>1;$('solo').setAttribute('aria-pressed',!tm);$('team').setAttribute('aria-pressed',tm);
+  const names=act.map(i=>eng(i)?.name).filter(Boolean);$('chips').textContent=!names.length?'No engineer selected':tm?`Team: ${names[0]} leads → ${names.slice(1).join(', ')} work → ${names[0]} reviews`:`Replying: ${names.join(', ')} · @name to choose`;
+}
+
+// ── sessions
+async function openSession(id){S.cur=S.sessions.find(s=>s.id===id);renderSide();renderMsgs(await api().load_session(id))}
+async function newSession(){const s=await api().new_session();S.sessions.unshift(s);openSession(s.id)}
+async function delSession(id){const x=S.sessions.find(s=>s.id===id);if(await askBox(`Delete "${x.title}" and its messages? This can't be undone.`,null,'Delete')===null)return;
+  await api().delete_session(id);S.sessions=S.sessions.filter(s=>s.id!==id);
+  if(!S.sessions.some(s=>!s.archived))return newSession();
+  if(S.cur.id===id)openSession(S.sessions.find(s=>!s.archived).id);else renderSide()}
+async function renameSession(id){const x=S.sessions.find(s=>s.id===id);const t=await askBox('Rename session',x.title,'Rename');if(t&&t.trim()){await api().rename_session(id,t.trim());x.title=t.trim();renderSide()}}
+function renameCur(){renameSession(S.cur.id)}
+async function archiveSession(id,flag){await api().archive_session(id,flag);const x=S.sessions.find(s=>s.id===id);x.archived=flag;
+  if(flag&&S.cur.id===id){const n=S.sessions.find(s=>!s.archived);if(n)openSession(n.id);else await newSession()}else renderSide()}
+async function saveSettings(){await api().update_settings(S.cur.id,S.cur.settings);renderSide()}
+async function setSet(){S.cur.settings.target=$('target').value;S.cur.settings.mode=$('mode').value;
+  if(S.cur.settings.mode==='auto'&&!S.autoWarned){S.autoWarned=1;await askBox('Auto mode lets engineers run any command without asking, on '+$('target').selectedOptions[0].text+'. Use it only for folders you trust.',null,'Got it')}
+  saveSettings()}
+async function pickDir(){const tg=S.cfg.ssh.find(h=>h.id===S.cur.settings.target);
+  browse(tg?(S.cur.settings.rcwd||tg.cwd||'~'):S.cur.settings.cwd)}
+let BR={};
+async function browse(path){const tid=S.cur.settings.target;BR.tid=tid;
+  modal('<h3>Choose working folder</h3><p class="sm">Loading…</p>');
+  const r=await api().list_dirs(tid,path);BR.path=r.path;const tg=S.cfg.ssh.find(h=>h.id===tid);
+  const recents=[...new Set(S.sessions.map(x=>tid==='local'?x.settings.cwd:x.settings.rcwd).filter(Boolean))].slice(0,5);
+  modal(`<h3>Choose working folder <span class="badge accent">${tg?esc(tg.name):'This Mac'}</span></h3>
+  <div class="f" style="grid-template-columns:auto 1fr auto"><button class="btn sm" ${r.parent?`onclick="browse('${esc(r.parent).replace(/'/g,"\\'")}')"`:'disabled'}>↑ Up</button><input class="field" id="br_path" value="${esc(r.path||path)}" onkeydown="if(event.key==='Enter')browse(this.value)"><button class="btn sm" onclick="browse('~')">Home</button></div>
+  ${r.error?`<p class="sm" style="color:var(--err)">${esc(r.error)}</p>`:''}
+  <div class="glass sunken" style="max-height:260px;overflow:auto;padding:6px;margin:8px 0;border-radius:var(--r-md)">${(r.dirs||[]).map(d=>`<div class="item" data-d="${esc(d)}" onclick="browse(BR.path.replace(/\\/$/,'')+'/'+this.dataset.d)">📁 <span class="t">${esc(d)}</span></div>`).join('')||'<p class="sm" style="padding:8px">No sub-folders</p>'}</div>
+  ${recents.length?`<div class="sm">Recent: ${recents.map(x=>`<a href="#" onclick="browse(this.dataset.p);return false" data-p="${esc(x)}" style="color:var(--accent);margin-right:8px">${esc(x)}</a>`).join('')}</div>`:''}
+  <div class="row">${tid==='local'?'<button class="btn" onclick="finderPick()">Choose in Finder…</button>':''}<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="useFolder()">Use this folder</button></div>`)}
+function useFolder(){const p=$('br_path').value.trim()||BR.path;if(BR.tid==='local')S.cur.settings.cwd=p;else S.cur.settings.rcwd=p;closeModal();saveSettings()}
+async function finderPick(){const d=await api().pick_dir();if(d){S.cur.settings.cwd=d;closeModal();saveSettings()}}
+function setAppr(v){S.cur.settings.autoapprove=v;saveSettings()}
+function setTeam(v){S.cur.settings.team=v;saveSettings()}
+function toggleEng(id){const a=S.cur.settings.active;const i=a.indexOf(id);i<0?a.push(id):a.splice(i,1);saveSettings()}
+
+// ── chat
+const live={};
+async function send(){
+  if(S.busy){await api().stop(S.cur.id);return}
+  const t=$('in').value.trim();if(!t)return;$('in').value='';autosize();
+  const m=await api().send(S.cur.id,t);if(!m)return;
+  if($('msgs').querySelector('.empty'))$('msgs').innerHTML='';
+  $('msgs').insertAdjacentHTML('beforeend',msgHtml(m));scroll(true);setBusy(true);
+  if(S.cur.title==='New session'){S.cur.title=t.slice(0,48);renderSide()}
+}
+function setBusy(b){S.busy=b;$('go').textContent=b?'Stop':'Send';$('go').classList.toggle('danger',b)}
+window.onEvent=ev=>{
+  if(ev.sid&&ev.sid!==S.cur?.id){if(ev.t==='idle')setBusy(false);return}
+  const box=ev.mid&&live[ev.mid];
+  if(ev.t==='start'){
+    const e=engByName(ev.author);const shell=ev.eid==='shell';
+    const html=shell?`<div class="m" data-id="${ev.mid}">${avatar('')}<div class="bub shell"><div class="who">Shell</div><pre><code class="body">$ ${esc(ev.shell)}\n</code></pre></div></div>`
+      :`<div class="m" data-id="${ev.mid}">${avatar(ev.author)}<div class="bub"><div class="who">${esc(ev.author)}${ev.via?`<span class="badge">${esc(ev.via)}</span>`:''}</div>${activityHtml({},true)}<div class="body cursor"></div></div></div>`;
+    $('msgs').insertAdjacentHTML('beforeend',html);const el=$('msgs').lastElementChild;
+    live[ev.mid]={el,text:'',shell,t0:Date.now(),author:ev.author,steps:0,step:'Starting…'};scroll();renderProgress();
+  }else if(ev.t==='text'&&box){box.text+=ev.d;const b=box.el.querySelector('.body');if(box.shell)b.textContent+=ev.d;else{b.innerHTML=md(box.text);if(!box.shell){box.step='Writing the answer…';nowText(box,'Writing the answer…')}}scroll()}
+  else if(ev.t==='tool'&&box){const t=box.el.querySelector('.steps');const ex=box.el.querySelector('[id="t-'+CSS.escape(ev.tool.id)+'"]');
+    if(ex){const o=ex.classList.contains('open');ex.outerHTML=toolHtml(ev.tool);if(o)box.el.querySelector('[id="t-'+CSS.escape(ev.tool.id)+'"]').classList.add('open')}else{t.insertAdjacentHTML('beforeend',toolHtml(ev.tool));box.steps++}box.step=(ev.tool.state==='running'?'▶ ':ev.tool.state==='error'?'✕ ':'✓ ')+ev.tool.name+(ev.tool.command?': '+ev.tool.command:'');nowText(box,box.step);scroll()}
+  else if(ev.t==='thought'&&box){const st=box.el.querySelector('.steps');let th=st.lastElementChild;if(!th||!th.classList.contains('th')){st.insertAdjacentHTML('beforeend','<div class="step th"><b>Thinking</b><span></span></div>');th=st.lastElementChild;box.steps++}th.lastElementChild.textContent+=ev.d;box.step='Thinking…';nowText(box,'Thinking…');if(stick)st.scrollTop=st.scrollHeight;scroll()}
+  else if(ev.t==='end'&&box){const vd=(ev.content||'').match(/VERDICT:\s*(PASS|FAIL|UNVERIFIED)/);if(vd)box.el.querySelector('.who').insertAdjacentHTML('beforeend',`<span class="badge ${vd[1]==='PASS'?'ok':vd[1]==='FAIL'?'err':'warn'}">${vd[1]==='PASS'?'✓ verified':vd[1]==='FAIL'?'✕ failed':'unverified'}</span>`);const b=box.el.querySelector('.body');b.classList.remove('cursor');if(!box.shell)b.innerHTML=md(ev.content||'');
+    {const sm=box.el.querySelector('.actv>.sum');if(sm){const bad=ev.error&&ev.error!=='Stopped';const sp=sm.querySelector('.spin');if(sp)sp.outerHTML=`<span class="${bad?'bad':'ok'}">${bad?'✕':'✓'}</span>`;const n=box.steps;nowText(box,(n?n+' step'+(n===1?'':'s'):'No tool calls')+' · '+(ev.dur??Math.round((Date.now()-box.t0)/1000))+'s');const el=sm.querySelector('.el');if(el)el.textContent='';if(!n&&!box.el.querySelector('.step')){const d=box.el.querySelector('.actv');if(d)d.remove()}}}
+    delete live[ev.mid];renderProgress();if(ev.memory)S.memory=ev.memory}
+  else if(ev.t==='settings'){if(S.cur&&S.cur.id===ev.sid){S.cur.settings=ev.settings;renderSide();if(window.ideOnSettings)ideOnSettings(ev.settings)}}
+  else if(ev.t==='autoapproved'){if($('msgs').querySelector('.empty'))$('msgs').innerHTML='';$('msgs').insertAdjacentHTML('beforeend',`<div class="m"><div class="bub sm" style="padding:2px 10px;background:none;box-shadow:none">✓ ${esc(ev.who)} ran <code>${esc(ev.cmd.length>90?ev.cmd.slice(0,90)+'…':ev.cmd)}</code> <span class="sm">(${esc(ev.why)})</span></div></div>`);scroll()}
+  else if(ev.t==='approval'){if($('msgs').querySelector('.empty'))$('msgs').innerHTML='';
+    $('msgs').insertAdjacentHTML('beforeend',`<div class="m" id="ap-${ev.cid}">${avatar(ev.who)}<div class="bub"><div class="who">${esc(ev.who)} wants to run a command <span class="badge accent">${esc(ev.where)}</span></div><pre><code>$ ${esc(ev.cmd)}</code></pre><div class="sm">in ${esc(ev.cwd)}</div><div class="apb" style="display:flex;gap:8px;margin-top:8px"><button class="btn sm primary" onclick="apv('${ev.cid}',true)">Run</button><button class="btn sm" onclick="apv('${ev.cid}',false)">Skip</button>${ev.risky?'<span class="sm" style="align-self:center">⚠ risky — always asks</span>':`<button class="btn sm ghost" onclick="apv('${ev.cid}',true,'session')" title="Run it, and run every non-risky command this session without asking">Allow all this session</button>`}</div></div></div>`);scroll()}
+  else if(ev.t==='message'){if(ev.message.author==='Team'&&ev.message.role==='system')PH=ev.message.content.split(' · ')[0];if($('msgs').querySelector('.empty'))$('msgs').innerHTML='';$('msgs').insertAdjacentHTML('beforeend',msgHtml(ev.message));scroll()}
+  else if(ev.t==='memory'){S.memory=ev.memory;if(ev.learned){const c=$('chips');const o=c.textContent;c.textContent='🧠 Memory updated';setTimeout(renderSide,2500)}}
+  else if(ev.t==='idle'){PH='';renderProgress();$('jump')&&($('jump').hidden=true);setBusy(false);S.sessions.sort((a,b)=>0)}
+};
+function apv(cid,ok,scope){api().approve(cid,ok,scope||'');const el=document.getElementById('ap-'+cid);if(el){const b=el.querySelector('.apb');if(b)b.outerHTML=`<div class="sm">${ok?'✓ approved — running':'✕ skipped'}</div>`}}
+// composer
+function autosize(){const e=$('in');e.style.height='auto';e.style.height=Math.min(e.scrollHeight,180)+'px'}
+$('in').addEventListener('input',()=>{autosize();mention()});
+$('in').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('hint').style.display='none';send()}if(e.key==='Escape')$('hint').style.display='none'});
+function mention(){const v=$('in').value;const m=v.match(/@([\w-]*)$/);const h=$('hint');
+  if(!m){h.style.display='none';return}
+  const opts=[...S.cfg.engineers.map(e=>e.name),'all'].filter(n=>n.toLowerCase().startsWith(m[1].toLowerCase()));
+  if(!opts.length){h.style.display='none';return}
+  h.innerHTML=opts.map(n=>`<div class="item" onmousedown="event.preventDefault();pick('${n}')">@${esc(n)}</div>`).join('');h.style.display='block'}
+function pick(n){const i=$('in');i.value=i.value.replace(/@[\w-]*$/,'@'+n+' ');$('hint').style.display='none';i.focus()}
+
+// ── modals
+function modal(html){$('card').innerHTML=html;$('modal').classList.add('show')}
+function closeModal(){$('modal').classList.remove('show')}
+const PROVIDERS={claude_cli:'Claude Code (claude)',antigravity_cli:'Google Antigravity (agy)',bob_cli:'IBM Bob (bob)',openai_api:'API: ChatGPT / Ollama (Llama) / FreeLLMAPI / any OpenAI-compatible',custom:'Custom CLI (prompt on stdin)'};
+const PRESETS=[['OpenAI (ChatGPT)','https://api.openai.com/v1'],['Ollama (Llama, local)','http://localhost:11434/v1'],['FreeLLMAPI (local agent)','http://localhost:3001/v1'],['Custom URL','']];
+const CMDS={claude_cli:'claude',antigravity_cli:'agy',bob_cli:'bob',openai_api:'',custom:''};
+function editEngineer(id){
+  const e=id?eng(id):{name:'',provider:'claude_cli',command:'claude',model:'',role:'Software Engineer',color:'#7aa7ff',avatar:'◆',args:''};
+  modal(`<h3>${id?'Edit':'Add'} engineer</h3>
+  <div class="f"><label>Name</label><input class="field" id="e_name" data-id="${id||''}" value="${esc(e.name)}"></div>
+  <div class="f"><label>Role</label><input class="field" id="e_role" value="${esc(e.role)}"></div>
+  <div class="f"><label>Provider</label><select class="field" id="e_prov" onchange="provChange()">${Object.entries(PROVIDERS).map(([k,v])=>`<option value="${k}" ${k===e.provider?'selected':''}>${v}</option>`).join('')}</select></div>
+  <div class="f" id="r_url"><label>API endpoint</label><div style="display:flex;gap:6px"><select class="field" id="e_preset" onchange="presetPick()" style="width:auto">${PRESETS.map(([l,u])=>`<option value="${u}" ${u===(e.base_url||'')?'selected':''}>${l}</option>`).join('')}</select><input class="field" id="e_url" value="${esc(e.base_url||'')}" placeholder="http://host:port/v1" onchange="fetchModels()"></div></div>
+  <div class="f" id="r_cmd"><label>Command</label><input class="field" id="e_cmd" value="${esc(e.command)}"></div>
+  <div class="f"><label>Model</label><div style="display:flex;gap:6px"><select class="field" id="e_modelsel" onchange="modelPick()"><option value="${esc(e.model)}">${esc(e.model||'Default')}</option></select><input class="field" id="e_model" value="${esc(e.model)}" style="display:none" placeholder="model id"><button class="btn sm" onclick="fetchModels()" id="e_fetch">↻ Fetch</button></div></div>
+  <div class="f"><label>API key</label><input class="field" id="e_key" type="password" autocomplete="off" placeholder="${e.has_key?'✓ saved — type to replace':'optional · stored locally (chmod 600)'}"></div>
+  <div class="f" id="r_args"><label>Extra args</label><input class="field" id="e_args" value="${esc(e.args)}"></div>
+  <div class="f"><label>Avatar / colour</label><div style="display:flex;gap:8px"><input class="field" id="e_av" value="${esc(e.avatar)}" style="width:70px"><input class="field" id="e_col" type="color" value="${e.color}" style="padding:0;width:50px;height:30px"></div></div>
+  <div class="row">${id?`<button class="btn danger" onclick="delEngineer('${id}')">Delete</button>`:''}<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveEngineer('${id||''}')">Save</button></div>`);provRows();fetchModels()}
+function provRows(){const a=$('e_prov').value==='openai_api';$('r_url').style.display=a?'':'none';$('r_cmd').style.display=$('r_args').style.display=a?'none':'';
+  if(a&&!$('e_url').value){$('e_url').value=PRESETS[0][1];$('e_preset').value=PRESETS[0][1]}
+  if(a)$('e_key').placeholder=$('e_key').placeholder.startsWith('✓')?$('e_key').placeholder:'OpenAI key · FreeLLMAPI unified key · blank for Ollama'}
+function presetPick(){const u=$('e_preset').value;$('e_url').value=u;if(u){fetchModels()}else $('e_url').focus()}
+function provChange(){$('e_cmd').value=CMDS[$('e_prov').value];provRows();$('e_model').value='';$('e_modelsel').innerHTML='<option value="">Default</option>';fetchModels()}
+function modelPick(){const v=$('e_modelsel').value;const c=v==='__custom';$('e_model').style.display=c?'':'none';if(!c)$('e_model').value=v;else $('e_model').focus()}
+async function fetchModels(){const b=$('e_fetch');b.textContent='Fetching…';const cur=$('e_model').value;
+  const r=await api().list_models({id:$('e_name')?.dataset.id||'',provider:$('e_prov').value,command:$('e_cmd').value,base_url:$('e_url').value.trim(),api_key:$('e_key').value});
+  const ms=r.models||[];const opts=[['','Default']].concat(ms.map(m=>[m.id,m.label+(m.label!==m.id?` — ${m.id}`:'')]));
+  if(cur&&!ms.some(m=>m.id===cur))opts.push([cur,cur]);opts.push(['__custom','Custom…']);
+  $('e_modelsel').innerHTML=opts.map(([v,l])=>`<option value="${esc(v)}">${esc(l)}</option>`).join('');$('e_modelsel').value=cur||'';
+  b.textContent=r.error?'↻ Retry':`↻ ${ms.length} found`;if(r.error)b.title=r.error}
+async function saveEngineer(id){
+  const e={id:id||undefined,name:$('e_name').value.trim(),role:$('e_role').value,provider:$('e_prov').value,command:$('e_cmd').value.trim(),model:$('e_model').value.trim(),api_key:$('e_key').value.trim()||undefined,args:$('e_args').value,avatar:$('e_av').value,color:$('e_col').value};
+  if(e.provider==='openai_api'){e.base_url=$('e_url').value.trim().replace(/\/+$/,'');if(!e.base_url)return}
+  if(!e.name)return;S.cfg=await api().save_engineer(e);closeModal();renderSide()}
+async function delEngineer(id){S.cfg=await api().delete_engineer(id);S.sessions.forEach(s=>s.settings.active=s.settings.active.filter(x=>x!==id));closeModal();renderSide()}
+function sshModal(){
+  modal(`<h3>SSH connections</h3><p class="sm">Commands (and engineers) run on the remote machine over key-based SSH. Engineers need their CLI (claude / agy) installed there. Use the "Run here" selector in the top bar.</p>
+  ${S.cfg.ssh.map(h=>`<div class="mem"><span><b>${esc(h.name)}</b> <span class="sm">${esc(h.user)}@${esc(h.host)}:${h.port||22}</span></span><button class="btn sm" onclick="testSsh('${h.id}')">Test</button><button class="btn sm" onclick="sshForm('${h.id}')">✎</button></div>`).join('')||'<p class="sm" style="margin-top:10px">None yet.</p>'}
+  <pre id="sshout" class="sm" style="white-space:pre-wrap;margin-top:8px"></pre>
+  <div class="f" style="grid-template-columns:1fr auto"><input class="field" id="s_quick" placeholder="Quick add: user@192.168.1.50 or user@host:2222" onkeydown="if(event.key==='Enter')quickSsh()"><button class="btn" onclick="quickSsh()">Add</button></div>
+  <div class="row"><button class="btn" onclick="importSsh()">Import from ~/.ssh/config</button><button class="btn" onclick="closeModal()">Close</button><button class="btn primary" onclick="sshForm()">＋ Manual</button></div>`)}
+async function quickSsh(){const v=$('s_quick').value.trim();const m=v.match(/^(?:([^@\s]+)@)?([^:\s]+)(?::(\d+))?$/);if(!m)return;
+  S.cfg=await api().save_ssh({name:m[2],host:m[2],user:m[1]||'',port:+m[3]||22,key:S.defKey||'',cwd:'~'});sshModal();renderSide()}
+async function importSsh(){const hs=await api().ssh_config_hosts();if(!hs.length){$('sshout').textContent='No Host entries found in ~/.ssh/config';return}
+  for(const h of hs){if(!S.cfg.ssh.some(x=>x.name===h.name))S.cfg=await api().save_ssh(h)}sshModal();renderSide()}
+function sshForm(id){const h=S.cfg.ssh.find(x=>x.id===id)||{name:'',host:'',user:'',port:22,key:S.defKey||'',cwd:'~'};
+  modal(`<h3>${id?'Edit':'New'} SSH connection</h3>
+  <div class="f"><label>Name</label><input class="field" id="s_name" value="${esc(h.name)}" placeholder="Ubuntu VM"></div>
+  <div class="f"><label>Host / IP</label><input class="field" id="s_host" value="${esc(h.host)}"></div>
+  <div class="f"><label>User</label><input class="field" id="s_user" value="${esc(h.user)}"></div>
+  <div class="f"><label>Port</label><input class="field" id="s_port" value="${h.port||22}"></div>
+  <div class="f"><label>Key file</label><input class="field" id="s_key" value="${esc(h.key)}" placeholder="optional — blank uses ssh defaults / agent"></div>
+  <div class="f"><label>Start folder</label><input class="field" id="s_cwd" value="${esc(h.cwd||'~')}" placeholder="~"></div>
+  <div class="row">${id?`<button class="btn danger" onclick="delSsh('${id}')">Delete</button>`:''}<button class="btn" onclick="sshModal()">Back</button><button class="btn primary" onclick="saveSsh('${id||''}')">Save</button></div>`)}
+const sshVal=()=>({name:$('s_name').value.trim(),host:$('s_host').value.trim(),user:$('s_user').value.trim(),port:+$('s_port').value||22,key:$('s_key').value.trim(),cwd:$('s_cwd').value.trim()||'~'});
+async function saveSsh(id){const h=sshVal();if(!h.host)return;if(id)h.id=id;S.cfg=await api().save_ssh(h);sshModal();renderSide()}
+async function delSsh(id){S.cfg=await api().delete_ssh(id);S.sessions.forEach(s=>{if(s.settings.target===id)s.settings.target='local'});sshModal();renderSide()}
+async function testSsh(id){$('sshout').textContent='Connecting…';const r=await api().test_ssh(S.cfg.ssh.find(h=>h.id===id));$('sshout').textContent=(r.ok?'✓ ':'✕ ')+r.output+(!r.ok&&/denied|publickey/i.test(r.output)?'\n\nKey login isn\'t set up. Run once in Terminal:  ssh-copy-id '+(h=>`${h.user?h.user+'@':''}${h.host}`)(S.cfg.ssh.find(h=>h.id===id)):'')}
+function memModal(){
+  modal(`<h3>🧠 Shared memory</h3><p class="sm">Every engineer sees these notes in every session. The app learns new ones from your chats automatically (one quick background call after each reply); <code>/remember …</code> also works.</p>
+  <label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="checkbox" ${S.cfg.auto_memory?'checked':''} onchange="S.cfg.auto_memory=this.checked;api().set_auto_memory(this.checked)"> Learn from chats automatically</label>
+  <div id="memlist">${S.memory.map(m=>`<div class="mem"><span>${esc(m.text)} <span class="sm">· ${esc(m.source)}</span></span><button class="btn sm" onclick="delMem('${m.id}')">✕</button></div>`).join('')||'<p class="sm" style="margin-top:10px">Nothing yet.</p>'}</div>
+  <div class="f" style="grid-template-columns:1fr auto;margin-top:12px"><input class="field" id="m_new" placeholder="Add a note…" onkeydown="if(event.key==='Enter')addMem()"><button class="btn primary" onclick="addMem()">Add</button></div>
+  <div class="row"><button class="btn" onclick="closeModal()">Close</button></div>`)}
+async function addMem(){const v=$('m_new').value;S.memory=await api().add_memory(v,'you');memModal()}
+async function delMem(id){S.memory=await api().delete_memory(id);memModal()}
+
+function askBox(title,value,okLabel='OK'){return new Promise(res=>{
+  modal(`<h3>${esc(title)}</h3>${value===null?'':`<input class="field" id="ask_v" value="${esc(value)}">`}<div class="row"><button class="btn" id="ask_c">Cancel</button><button class="btn primary" id="ask_o">${okLabel}</button></div>`);
+  const v=$('ask_v');if(v){v.focus();v.select();v.onkeydown=e=>{if(e.key==='Enter')$('ask_o').click()}}
+  $('ask_c').onclick=()=>{closeModal();res(null)};$('ask_o').onclick=()=>{const r=v?v.value:true;closeModal();res(r)}})}
+async function refreshStatus(){$('stat').textContent='checking…';try{S.status=await api().check_status()}catch(e){}renderSide()}
+setInterval(()=>{if(window.pywebview&&!S.busy)refreshStatus()},45000);
+window.addEventListener('pywebviewready',async()=>{
+  const b=await api().bootstrap();S.cfg=b.config;S.defKey=b.default_key;S.sessions=b.sessions;S.memory=b.memory;S.home=b.home;
+  S.sessions.forEach(s=>s.settings={cwd:b.home,target:'local',mode:'edit',team:true,active:[],...s.settings});
+  openSession((S.sessions.find(s=>!s.archived)||S.sessions[0]).id);$('in').focus();refreshStatus();
+});
+</script></body></html>

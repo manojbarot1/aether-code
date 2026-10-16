@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="crystal">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aether Liquid Glass | Next-Gen Frosted UI</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Fluid Background Blobs -->
+  <div class="liquid-canvas-container">
+    <div class="liquid-blob blob-1"></div>
+    <div class="liquid-blob blob-2"></div>
+    <div class="liquid-blob blob-3"></div>
+    <div class="liquid-blob blob-4"></div>
+  </div>
+
+  <!-- Glass Pill Navbar -->
+  <header class="glass-nav-wrapper">
+    <nav class="glass-navbar">
+      <a href="index.html" class="brand-logo">
+        <div class="brand-icon-glass">💧</div>
+        <span>Aether<span style="color: #38bdf8;">Glass</span></span>
+      </a>
+
+      <button class="mobile-nav-toggle" aria-label="Toggle Navigation">☰</button>
+
+      <ul class="nav-links">
+        <li><a href="index.html" class="active">Home</a></li>
+        <li><a href="features.html">Features</a></li>
+        <li><a href="dashboard.html">Dashboard</a></li>
+        <li><a href="pricing.html">Pricing</a></li>
+        <li><a href="contact.html">Contact</a></li>
+      </ul>
+
+      <div class="nav-actions">
+        <div class="theme-pill-selector">
+          <button class="theme-btn" data-theme="crystal" title="Crystal Twilight">💎</button>
+          <button class="theme-btn" data-theme="aurora" title="Aurora Borealis">🌌</button>
+          <button class="theme-btn" data-theme="nebula" title="Deep Nebula">🪐</button>
+        </div>
+        <a href="dashboard.html" class="btn-glass btn-glass-primary">Launch App</a>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Main Content -->
+  <main class="page-container">
+    
+    <!-- Hero Section -->
+    <section class="hero-section">
+      <div class="glass-pill-badge">
+        <span class="badge-pulse-dot"></span>
+        <span>Liquid Glass UI Engine v2.4</span>
+      </div>
+
+      <h1 class="hero-title">
+        Translucent Design. <br>
+        <span class="liquid-gradient-text">Fluid Organic Beauty.</span>
+      </h1>
+
+      <p class="hero-subtitle">
+        Experience hyper-realistic frosted refraction, reactive iridescent specular reflections, and liquid depth crafted for the next generation of spatial and web interfaces.
+      </p>
+
+      <div class="hero-cta-group">
+        <a href="features.html" class="btn-glass btn-glass-primary btn-glass-lg liquid-shimmer">
+          Explore Showcase ⚡
+        </a>
+        <a href="dashboard.html" class="btn-glass btn-glass-lg">
+          Live Glass Dashboard →
+        </a>
+      </div>
+
+      <!-- Glass Showcase Stage -->
+      <div class="glass-showcase-stage liquid-shimmer">
+        <div class="stage-header">
+          <div class="window-dots">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+          </div>
+          <span class="stage-title">AETHER LIQUID GLASS INTERACTIVE STAGE</span>
+          <span class="glass-tag tag-success">Active Refraction</span>
+        </div>
+
+        <div class="showcase-grid">
+          <!-- Glass Media Widget -->
+          <div class="glass-card">
+            <div class="glass-media-player">
+              <div class="album-art-glass">🌊</div>
+              <div class="track-info">
+                <div class="track-title">Fluidity Stream</div>
+                <div class="track-artist">Ambient Refractions</div>
+                <div class="liquid-progress-bar">
+                  <div class="liquid-progress-fill"></div>
+                </div>
+              </div>
+              <button id="player-play-btn" class="btn-glass" style="width: 44px; height: 44px; padding: 0; font-size: 1.1rem; border-radius: 50%;">▶</button>
+            </div>
+          </div>
+
+          <!-- Glass Refraction Card -->
+          <div class="glass-card" id="glass-preview-sample">
+            <div class="card-icon-container">💎</div>
+            <h3>Dynamic Prism Filter</h3>
+            <p>Real-time optical depth map with dual-pass blur and chromatic edge dispersion.</p>
+            <div style="margin-top: 14px; display: flex; gap: 8px;">
+              <span class="glass-tag tag-purple">4K Blur</span>
+              <span class="glass-tag tag-orange">HDR Specular</span>
+            </div>
+          </div>
+
+          <!-- Interactive Blur Tuner -->
+          <div class="glass-card">
+            <h3>Refraction Controls</h3>
+            <p style="margin-bottom: 12px; font-size: 0.85rem;">Adjust live blur & surface density:</p>
+            
+            <div style="margin-bottom: 12px;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px;">
+                <span>Blur Radius:</span>
+                <span id="val-blur" style="color: #38bdf8;">24px</span>
+              </div>
+              <input type="range" id="slider-blur" min="4" max="48" value="24" class="glass-slider">
+            </div>
+
+            <div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px;">
+                <span>Surface Opacity:</span>
+                <span id="val-opacity" style="color: #c084fc;">8%</span>
+              </div>
+              <input type="range" id="slider-opacity" min="2" max="35" value="8" class="glass-slider">
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Metrics Strip -->
+    <section class="metrics-strip">
+      <div class="metric-card">
+        <div class="metric-number counter-val" data-count="99" data-suffix="%">0</div>
+        <div class="metric-label">Optical Clarity</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-number counter-val" data-count="60" data-suffix=" FPS">0</div>
+        <div class="metric-label">Fluid Shaders</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-number counter-val" data-count="120" data-suffix="k+">0</div>
+        <div class="metric-label">Active Glass Nodes</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-number counter-val" data-count="4" data-suffix="ms">0</div>
+        <div class="metric-label">Render Latency</div>
+      </div>
+    </section>
+
+    <!-- Core Features Grid -->
+    <section style="margin: 80px 0;">
+      <div style="text-align: center; margin-bottom: 50px;">
+        <span class="glass-tag tag-purple" style="margin-bottom: 12px;">ENGINE ARCHITECTURE</span>
+        <h2 style="font-size: 2.4rem; letter-spacing: -1px; margin-top: 8px;">Crafted for Liquid Elegance</h2>
+        <p style="color: var(--text-muted); max-width: 600px; margin: 10px auto;">Every pixel is computed with multi-layer backdrop blurs, specular sheen curves, and fluid transitions.</p>
+      </div>
+
+      <div class="showcase-grid">
+        <div class="glass-card">
+          <div class="card-icon-container">✨</div>
+          <h3>Specular Light Tracking</h3>
+          <p>Micro-specular highlights dynamically follow cursor positioning to recreate natural optical reflection on physical crystal glass.</p>
+        </div>
+
+        <div class="glass-card">
+          <div class="card-icon-container">🔮</div>
+          <h3>Multi-Depth Blurring</h3>
+          <p>Hierarchical z-depth glass layering lets background elements refract softly without sacrificing legibility or high-contrast readability.</p>
+        </div>
+
+        <div class="glass-card">
+          <div class="card-icon-container">🌈</div>
+          <h3>Iridescent Color Flow</h3>
+          <p>Organic floating blobs generate gentle chromatic dispersion across the viewport, giving interfaces an ethereal, living essence.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="glass-panel" style="padding: 60px 40px; text-align: center; margin: 90px 0;">
+      <h2 style="font-size: 2.2rem; margin-bottom: 16px;">Ready to Elevate Your Interface?</h2>
+      <p style="color: var(--text-muted); max-width: 580px; margin: 0 auto 30px auto;">
+        Deploy fluid frosted glass layouts with clean semantics, responsive grids, and effortless accessibility.
+      </p>
+      <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
+        <a href="dashboard.html" class="btn-glass btn-glass-primary btn-glass-lg">Open Dashboard</a>
+        <a href="pricing.html" class="btn-glass btn-glass-lg">View Plans</a>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Glass Footer -->
+  <footer class="glass-footer">
+    <div class="footer-content">
+      <div class="brand-logo">
+        <div class="brand-icon-glass">💧</div>
+        <span>AetherGlass</span>
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="features.html">Features</a>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="pricing.html">Pricing</a>
+        <a href="contact.html">Contact</a>
+      </div>
+      <div class="footer-copy">
+        © 2026 Aether-Lite. Liquid Glass Design System.
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

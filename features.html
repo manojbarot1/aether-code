@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="crystal">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Features & Components | Aether Liquid Glass</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Fluid Background Blobs -->
+  <div class="liquid-canvas-container">
+    <div class="liquid-blob blob-1"></div>
+    <div class="liquid-blob blob-2"></div>
+    <div class="liquid-blob blob-3"></div>
+    <div class="liquid-blob blob-4"></div>
+  </div>
+
+  <!-- Glass Pill Navbar -->
+  <header class="glass-nav-wrapper">
+    <nav class="glass-navbar">
+      <a href="index.html" class="brand-logo">
+        <div class="brand-icon-glass">💧</div>
+        <span>Aether<span style="color: #38bdf8;">Glass</span></span>
+      </a>
+
+      <button class="mobile-nav-toggle" aria-label="Toggle Navigation">☰</button>
+
+      <ul class="nav-links">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="features.html" class="active">Features</a></li>
+        <li><a href="dashboard.html">Dashboard</a></li>
+        <li><a href="pricing.html">Pricing</a></li>
+        <li><a href="contact.html">Contact</a></li>
+      </ul>
+
+      <div class="nav-actions">
+        <div class="theme-pill-selector">
+          <button class="theme-btn" data-theme="crystal" title="Crystal Twilight">💎</button>
+          <button class="theme-btn" data-theme="aurora" title="Aurora Borealis">🌌</button>
+          <button class="theme-btn" data-theme="nebula" title="Deep Nebula">🪐</button>
+        </div>
+        <a href="dashboard.html" class="btn-glass btn-glass-primary">Launch App</a>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Main Content -->
+  <main class="page-container">
+    
+    <!-- Hero Section -->
+    <section class="hero-section" style="padding-bottom: 40px;">
+      <div class="glass-pill-badge">
+        <span class="badge-pulse-dot"></span>
+        <span>Component Architecture & Capabilities</span>
+      </div>
+
+      <h1 class="hero-title">
+        Engineered for <br>
+        <span class="liquid-gradient-text">Hyper-Realistic Refraction.</span>
+      </h1>
+
+      <p class="hero-subtitle">
+        Explore our comprehensive design system combining GPU-accelerated backdrop filters, iridescent chromatic dispersion, and interactive tactile micro-feedback.
+      </p>
+    </section>
+
+    <!-- Interactive Component Tabs -->
+    <section style="margin-bottom: 70px;">
+      <div class="glass-tab-nav">
+        <button class="glass-tab-btn active" data-target="tab-surfaces">Glass Surfaces</button>
+        <button class="glass-tab-btn" data-target="tab-fluidity">Fluid Dynamics</button>
+        <button class="glass-tab-btn" data-target="tab-controls">Interactive Controls</button>
+        <button class="glass-tab-btn" data-target="tab-shaders">Optic Shaders</button>
+      </div>
+
+      <!-- Tab 1: Glass Surfaces -->
+      <div id="tab-surfaces" class="tab-pane active">
+        <div class="showcase-grid">
+          <div class="glass-card liquid-shimmer">
+            <div class="card-icon-container">💎</div>
+            <h3>Frosted Translucency</h3>
+            <p>Dual-pass optical blur combined with high-saturation backdrops gives deep layered content without sacrificing contrast or legibility.</p>
+            <div style="margin-top: 18px; display: flex; gap: 8px;">
+              <span class="glass-tag tag-purple">Backdrop Blur</span>
+              <span class="glass-tag tag-success">High Contrast</span>
+            </div>
+          </div>
+
+          <div class="glass-card liquid-shimmer">
+            <div class="card-icon-container">🔮</div>
+            <h3>Specular Sheen</h3>
+            <p>Real-time mouse pointer tracking casts a simulated sunlight beam across the bevel edge, matching genuine physical crystal refractions.</p>
+            <div style="margin-top: 18px; display: flex; gap: 8px;">
+              <span class="glass-tag tag-orange">Dynamic Spotlight</span>
+              <span class="glass-tag tag-purple">120 FPS</span>
+            </div>
+          </div>
+
+          <div class="glass-card liquid-shimmer">
+            <div class="card-icon-container">✨</div>
+            <h3>Micro-Bevel Edges</h3>
+            <p>Subtle 1px semi-transparent highlight borders define spatial boundaries with inner shadow insets for realistic tactile depth.</p>
+            <div style="margin-top: 18px; display: flex; gap: 8px;">
+              <span class="glass-tag tag-success">Retina Inset</span>
+              <span class="glass-tag tag-orange">Zero Bleed</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Fluid Dynamics -->
+      <div id="tab-fluidity" class="tab-pane">
+        <div class="showcase-grid">
+          <div class="glass-card">
+            <div class="card-icon-container">🌊</div>
+            <h3>Organic Mesh Blobs</h3>
+            <p>Floating screen-blended SVG/CSS liquid gradients float gently behind frosted panes, simulating fluid convection and light ripples.</p>
+            <div style="margin-top: 18px; display: flex; gap: 8px;">
+              <span class="glass-tag tag-success">CSS Keyframes</span>
+              <span class="glass-tag tag-purple">Low Power</span>
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-icon-container">🌈</div>
+            <h3>Chromatic Shifts</h3>
+            <p>Themes seamlessly transition color gamuts between Crystal Cyan, Aurora Emerald, and Deep Nebula Magenta on the fly.</p>
+            <div style="margin-top: 18px; display: flex; gap: 8px;">
+              <span class="glass-tag tag-orange">Dynamic CSS Vars</span>
+              <span class="glass-tag tag-purple">Persistent</span>
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-icon-container">⚡</div>
+            <h3>Inertial Springs</h3>
+            <p>Hover transformations and press states respond with cubic-bezier dampening for fluid organic tactility on every click.</p>
+            <div style="margin-top: 18px; display: flex; gap: 8px;">
+              <span class="glass-tag tag-success">Spring Curve</span>
+              <span class="glass-tag tag-orange">Haptic Feel</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Interactive Controls -->
+      <div id="tab-controls" class="tab-pane">
+        <div class="showcase-grid">
+          <div class="glass-card">
+            <div class="card-icon-container">🎛️</div>
+            <h3>Liquid Toggle Switches</h3>
+            <p>Translucent toggle pills with smooth neon gradient fill when active.</p>
+            <div style="margin-top: 20px; display: flex; align-items: center; gap: 16px;">
+              <label class="glass-switch">
+                <input type="checkbox" checked>
+                <span class="glass-switch-slider"></span>
+              </label>
+              <span style="font-size: 0.9rem; color: var(--text-muted);">Refraction Glow Active</span>
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-icon-container">🎚️</div>
+            <h3>Frosted Range Sliders</h3>
+            <p>Custom glass thumbs with colored neon aura tracks and live values.</p>
+            <div style="margin-top: 20px;">
+              <input type="range" min="0" max="100" value="70" class="glass-slider">
+              <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-top: 8px; color: var(--text-muted);">
+                <span>0% Dispersal</span>
+                <span style="color: #38bdf8;">70% Resonance</span>
+                <span>100% Full</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-icon-container">🔘</div>
+            <h3>Glass Button Variants</h3>
+            <p>Frosted standard buttons, gradient CTA pills, and circular action icons.</p>
+            <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+              <button class="btn-glass" onclick="showGlassToast('Secondary Glass clicked!')">Secondary</button>
+              <button class="btn-glass btn-glass-primary" onclick="showGlassToast('Primary Glass clicked!')">Primary</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 4: Optic Shaders -->
+      <div id="tab-shaders" class="tab-pane">
+        <div class="showcase-grid">
+          <div class="glass-card">
+            <div class="card-icon-container">🔬</div>
+            <h3>Subsurface Scattering</h3>
+            <p>Multi-layered semi-opaque diffusion creates simulated density mimicking optical silica glass under ambient room light.</p>
+            <div style="margin-top: 18px; display: flex; gap: 8px;">
+              <span class="glass-tag tag-purple">Subsurface</span>
+              <span class="glass-tag tag-success">Layer Depth</span>
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-icon-container">🪐</div>
+            <h3>Atmospheric Dispersion</h3>
+            <p>Color grading responds dynamically to ambient system themes and high dynamic range displays with no banding artifacts.</p>
+            <div style="margin-top: 18px; display: flex; gap: 8px;">
+              <span class="glass-tag tag-orange">10-Bit Color</span>
+              <span class="glass-tag tag-purple">Dither Free</span>
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-icon-container">📐</div>
+            <h3>Adaptive Aspect Scales</h3>
+            <p>Fluid CSS clamp formulas scale typography, blur factors, and paddings seamlessly across phones, laptops, and ultra-wide monitors.</p>
+            <div style="margin-top: 18px; display: flex; gap: 8px;">
+              <span class="glass-tag tag-success">Fluid Clamp</span>
+              <span class="glass-tag tag-orange">Responsive</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Comparison Panel -->
+    <section class="glass-panel" style="padding: 40px; margin-bottom: 70px;">
+      <div style="text-align: center; margin-bottom: 30px;">
+        <span class="glass-tag tag-orange">BENCHMARKS</span>
+        <h2 style="font-size: 2rem; margin-top: 10px;">Liquid Glass vs Traditional UI</h2>
+      </div>
+
+      <div class="glass-table-wrapper">
+        <table class="glass-table">
+          <thead>
+            <tr>
+              <th>Design Dimension</th>
+              <th>Legacy Flat UI</th>
+              <th>Standard Neumorphism</th>
+              <th>Aether Liquid Glass</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Spatial Depth</strong></td>
+              <td>Flat planes, no depth</td>
+              <td>Heavy extruded shadows</td>
+              <td><span class="glass-tag tag-success">Translucent multi-layer refraction</span></td>
+            </tr>
+            <tr>
+              <td><strong>Accessibility Contrast</strong></td>
+              <td>High contrast, rigid</td>
+              <td>Poor legibility & low contrast</td>
+              <td><span class="glass-tag tag-success">WCAG AAA compliant with specular boost</span></td>
+            </tr>
+            <tr>
+              <td><strong>Performance</strong></td>
+              <td>Fast DOM rendering</td>
+              <td>Heavy CSS box-shadows</td>
+              <td><span class="glass-tag tag-purple">GPU composited (60-120 FPS)</span></td>
+            </tr>
+            <tr>
+              <td><strong>Dynamic Ambiance</strong></td>
+              <td>Static colors</td>
+              <td>Monochrome grays</td>
+              <td><span class="glass-tag tag-orange">Fluid iridescent background mesh</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Bottom CTA -->
+    <section class="glass-panel" style="padding: 50px 30px; text-align: center;">
+      <h2 style="font-size: 2.2rem; margin-bottom: 14px;">Experience the Liquid Dashboard</h2>
+      <p style="color: var(--text-muted); max-width: 600px; margin: 0 auto 28px auto;">
+        Inspect real-time telemetry, server health, and interactive glass tables in our live dashboard sample.
+      </p>
+      <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
+        <a href="dashboard.html" class="btn-glass btn-glass-primary btn-glass-lg">Open Glass Dashboard →</a>
+        <a href="pricing.html" class="btn-glass btn-glass-lg">Check Pricing</a>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Glass Footer -->
+  <footer class="glass-footer">
+    <div class="footer-content">
+      <div class="brand-logo">
+        <div class="brand-icon-glass">💧</div>
+        <span>AetherGlass</span>
+      </div>
+      <div class="footer-links">
+        <a href="index.html">Home</a>
+        <a href="features.html">Features</a>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="pricing.html">Pricing</a>
+        <a href="contact.html">Contact</a>
+      </div>
+      <div class="footer-copy">
+        © 2026 Aether-Lite. Liquid Glass Design System.
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
