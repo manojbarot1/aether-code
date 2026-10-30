@@ -80,6 +80,9 @@ AETHER_WEB_TOKEN=pick-a-long-random-string ./run-web.sh --host 0.0.0.0
 # then browse to http://<mac-ip>:3910/#token=pick-a-long-random-string
 ```
 
+All URLs in the page are relative, so it also works behind a path prefix: a reverse proxy
+can serve it at e.g. `/chat/` (forward `api/*` and the `events` stream unbuffered).
+
 Differences from the desktop app: "Choose in Finder…" focuses the folder browser's path
 field instead of opening a native dialog, and copy/paste uses the browser's clipboard.
 

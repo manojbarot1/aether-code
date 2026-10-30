@@ -1,6 +1,8 @@
 // Browser stand-in for pywebview, loaded by web.py before the UI's own scripts.
-// window.pywebview.api.<method>(...args) → POST /api/<method>; engine events arrive
+// window.pywebview.api.<method>(...args) → POST api/<method>; engine events arrive
 // over Server-Sent Events and are handed to window.onEvent exactly as in the desktop app.
+// URLs are relative, so the page also works behind a path prefix (e.g. a panel serving
+// it at /chat/).
 (() => {
   // Optional token (AETHER_WEB_TOKEN), passed once as #token=… and kept for this tab.
   const fromHash = new URLSearchParams(location.hash.slice(1)).get('token');
@@ -9,10 +11,33 @@
     history.replaceState(null, '', location.pathname);
   }
   let token = '';
-  try { token = sessionStorage.getItem('aetherToken') || ''; } catch {}
+  try { token = sessionStorage.getItem('aetherToken') || sessionStorage.getItem('panelToken') || ''; } catch {}
+
+  // ui.html's send() clears the empty-chat placeholder after api().send() returns. In the
+  // desktop app that call returns at once; over HTTP a fast reply's events can arrive first
+  // and get wiped. So events are held while a send is in flight and delivered right after
+  // the UI has handled its result.
+  let holding = 0;
+  const held = [];
+  function deliver(ev) {
+    if (holding) { held.push(ev); return; }
+    try { if (window.onEvent) window.onEvent(ev); } catch (err) { console.error(err); }
+  }
+  function release() {
+    holding--;
+    while (!holding && held.length) deliver(held.shift());
+  }
 
   async function call(name, args) {
-    const res = await fetch(`/api/${name}`, {
+    if (name === 'send') {
+      holding++;
+      try { return await request(name, args); } finally { setTimeout(release, 0); }
+    }
+    return request(name, args);
+  }
+
+  async function request(name, args) {
+    const res = await fetch(`api/${name}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-aether-web': '1', 'x-aether-token': token },
       body: JSON.stringify({ args }),
@@ -20,7 +45,7 @@
     const body = await res.json().catch(() => ({}));
     if (res.status === 401) {
       const t = prompt('Aether web token (AETHER_WEB_TOKEN):');
-      if (t) { token = t; try { sessionStorage.setItem('aetherToken', t); } catch {} return call(name, args); }
+      if (t) { token = t; try { sessionStorage.setItem('aetherToken', t); } catch {} return request(name, args); }
     }
     if (!res.ok) throw new Error(body.error || res.statusText);
     return body.result;
@@ -38,9 +63,11 @@
   };
 
   function listen() {
-    const es = new EventSource(`/events${token ? `?token=${encodeURIComponent(token)}` : ''}`);
+    const es = new EventSource(`events${token ? `?token=${encodeURIComponent(token)}` : ''}`);
     es.onmessage = e => {
-      try { if (window.onEvent) window.onEvent(JSON.parse(e.data)); } catch (err) { console.error(err); }
+      let ev;
+      try { ev = JSON.parse(e.data); } catch { return; }
+      deliver(ev);
     };
     // EventSource reconnects by itself; nothing to do on error.
   }
