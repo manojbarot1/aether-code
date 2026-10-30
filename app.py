@@ -417,6 +417,72 @@ def ssh_argv(target: dict, remote_cmd: str) -> list[str]:
     return argv
 
 
+# ───────────────────────────── command / file blocks ─────────────────────────────
+
+_HEREDOC = re.compile(r"(?<!<)<<-?(?!<)\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def run_blocks(text: str) -> list[str]:
+    """Commands from the ```run blocks in a reply. A block ends at a ``` line, but not inside a heredoc, so a
+    file whose content has Markdown code fences (```) arrives whole instead of being cut off at its first fence.
+    A block that is never closed (the reply was cut off mid-stream) is not run: it would write half a file."""
+    out: list[str] = []
+    lines = (text or "").split("\n")
+    i = 0
+    while i < len(lines):
+        m = re.match(r"\s*```run\b(.*)$", lines[i])
+        i += 1
+        if not m:
+            continue
+        rest = m.group(1).strip()
+        if rest.endswith("```"):                     # ```run ls -la ``` on one line
+            if rest[:-3].strip():
+                out.append(rest[:-3].strip())
+            continue
+        body = [rest] if rest else []
+        ends = [t for _, t in _HEREDOC.findall(rest)]
+        closed = False
+        while i < len(lines):
+            ln = lines[i]
+            i += 1
+            if ends:                                 # inside a heredoc: only its terminator ends it
+                body.append(ln)
+                if ln.strip() == ends[0]:
+                    ends.pop(0)
+                continue
+            if ln.strip() == "```":
+                closed = True
+                break
+            if ln.rstrip().endswith("```"):          # `ls -la ```
+                body.append(ln.rstrip()[:-3])
+                closed = True
+                break
+            body.append(ln)
+            ends += [t for _, t in _HEREDOC.findall(ln)]
+        cmd = "\n".join(body).strip()
+        if closed and cmd:
+            out.append(cmd)
+    return out
+
+
+def aether_block(text: str) -> dict:
+    """The last ```aether {...} block in a reply (the same protocol as aether-ai-team): "files" to write and
+    "commands" to run. Parsed with a real JSON decoder from the opening brace, so file content may contain
+    anything, fences included. strict=False accepts raw newlines inside strings (small models emit them)."""
+    dec = json.JSONDecoder(strict=False)
+    for m in reversed(list(re.finditer(r"```aether[ \t]*\n", text or ""))):
+        start = text.find("{", m.end())
+        if start < 0:
+            continue
+        try:
+            data, _ = dec.raw_decode(text, start)
+        except ValueError:
+            continue
+        if isinstance(data, dict):
+            return data
+    return {}
+
+
 # ───────────────────────────── API exposed to the UI ─────────────────────────────
 
 CONVO = ("Answer the user directly and concisely (under ~150 words unless they asked for detail). "
@@ -429,11 +495,14 @@ RUN_NOTE = ("You cannot run shell commands yourself in this mode. When you need 
             "approve it, runs it where the project lives, and sends you the output so you can continue. "
             "Start with small read-only commands.\n")
 
-API_NOTE = ("You are reached through a chat API and have no file or shell tools of your own. ONLY ```run blocks are "
-            "executed — any other tool-call syntax (<tool_call>, function calls, JSON) is ignored. Do all work (create/edit "
-            "files, run tests) through ```run blocks. Write each whole file with one heredoc in one block:\n"
-            "```run\ncat > path/file.ext <<'EOF'\n...full file content...\nEOF\n```\n"
-            "Check your work (e.g. `wc -c file`) before saying it is done.\n")
+API_NOTE = ("You are reached through a chat API and have no file or shell tools of your own. Only two kinds of block are "
+            "acted on — any other tool-call syntax (<tool_call>, function calls) is ignored.\n"
+            "1. To create or replace files, put them in ONE ```aether block at the end of your reply (JSON, each file complete):\n"
+            "```aether\n{\"files\": [{\"path\": \"src/app.ts\", \"content\": \"...the whole file...\"}]}\n```\n"
+            "Paths are relative to the project folder. The app writes them and tells you each size. Prefer this over heredocs: "
+            "file content can contain anything (``` fences, quotes) without breaking.\n"
+            "2. To run commands (install, build, test, start a server), use ```run blocks.\n"
+            "Check your work (e.g. `wc -c file`, run the tests) before saying it is done.\n")
 
 DOD = ("Definition of done: never say something works until you have actually run or opened it and can show the real "
        "command output. PORTS: never assume 8000 is free. Get a free port with `freeport 8000` (prints the first free port at or "
@@ -992,9 +1061,11 @@ class Api:
         return next((e for e in ok if e["id"] not in busy), None) or (ok[0] if ok else None)
 
     def _run_covered(self, sid: str, eng: dict, pool: list[dict], cfg: dict, st: dict, target: dict | None,
-                     directive="", phase: str = "", what: str = "task") -> tuple[dict, str]:
+                     directive="", phase: str = "", what: str = "task", accept=None) -> tuple[dict, str]:
         """Run `eng`; if it goes down, errors out or stops responding, hand the same work to the next available
         engineer in `pool`. `directive` may be a function of the engineer (e.g. the lead's plan prompt).
+        `accept(eng)` may return a reply that already did the job even though a later round failed (e.g. the
+        lead's plan, written before a provider error on its next call); then nobody takes over.
         Returns (engineer who finished, reply)."""
         make = directive if callable(directive) else (lambda e: directive)
         tried: set[str] = set()
@@ -1010,6 +1081,9 @@ class Api:
             o = self._outcome.get((sid, eng["id"])) or {}
             if sid in self.stopped or not (o.get("failed") or orch.is_down(eng["id"])):
                 return eng, text
+            done = accept(eng) if accept else None
+            if done:
+                return eng, done
             why = (orch.down_reason(eng["id"]) or o.get("why") or "not responding").splitlines()[0][:90]
             sub = self._substitute(sid, pool, tried)
             if not sub:
@@ -1035,18 +1109,41 @@ class Api:
                     "@Name: the specific task for them\n"
                     "Delegate by strengths (e.g. implementation vs review vs research). Do NOT do their work yourself now; "
                     "you will review everything afterwards. If the request is trivial, answer it directly and delegate nothing.")
-        lead, plan = self._run_covered(sid, lead, members, cfg, st, target, plan_prompt, phase="plan", what="lead role")
-        if (self._outcome.get((sid, lead["id"])) or {}).get("failed"):
+        t_plan = time.time()
+
+        def assigned(text: str) -> dict:
+            """@Name: task lines in a plan, for every teammate who can still work."""
+            out = {}
+            for m in members:
+                if orch.is_down(m["id"]) or m["id"] in self._failed_turn.get(sid, set()):
+                    continue
+                hit = re.search(rf"^\s*@{re.escape(m['name'])}\b\s*[:\-–]\s*(.+)$", text or "", re.I | re.M)
+                if hit:
+                    out[m["id"]] = hit.group(1).strip()
+            return out
+
+        def planned(eng: dict | None = None) -> str | None:
+            """The first plan written this turn (by `eng`, or by anyone) that assigns work."""
+            for author, text in self._phase_replies(sid, "plan", t_plan):
+                if (eng is None or author == eng["name"]) and assigned(text):
+                    return text
+            return None
+
+        lead, plan = self._run_covered(sid, lead, members, cfg, st, target, plan_prompt, phase="plan", what="lead role",
+                                       accept=planned)
+        tasks = assigned(plan)
+        if not tasks and (earlier := planned()):
+            # The first lead planned and then failed; its replacement started over without delegating.
+            # The earlier plan is still the best one we have, so the team works from it.
+            plan, tasks = earlier, assigned(earlier)
+            self._post(sid, "system", "Team", "Using the plan written earlier this turn", {"phase": "plan"})
+        if (self._outcome.get((sid, lead["id"])) or {}).get("failed") and not tasks:
             return                                   # nobody could lead; the reason is already posted
         mates = [m for m in members if m["id"] != lead["id"] and not orch.is_down(m["id"])
                  and m["id"] not in self._failed_turn.get(sid, set())]
-        tasks = {}
-        for m in mates:
-            hit = re.search(rf"^\s*@{re.escape(m['name'])}\b\s*[:\-–]\s*(.+)$", plan, re.I | re.M)
-            if hit:
-                tasks[m["id"]] = hit.group(1).strip()
         solo_lead = not tasks and len(plan) < 400 and not re.search(r"@\w+", plan)   # lead handled a small request itself
-        workers = [] if solo_lead else ([m for m in mates if m["id"] in tasks] or mates)
+        # The lead works too when the plan gave it a part (e.g. it took over from a lead that planned and failed).
+        workers = [] if solo_lead else ([m for m in mates + [lead] if m["id"] in tasks] or mates)
         if workers:
             self._post(sid, "system", "Team", "Work · " + ", ".join(m["name"] for m in workers), {"phase": "work"})
         done: list[dict] = []
@@ -1055,7 +1152,7 @@ class Api:
         def work(m):
             task = tasks.get(m["id"], "Contribute your part to the request, complementing the plan.")
             who, _ = self._run_covered(sid, m, pool, cfg, st, target, phase="work", what=f"task “{task[:60]}”", directive=(
-                f"{lead['name']} (team lead) assigned you: {task}\n"
+                (f"Your part of the team plan: {task}\n" if m["id"] == lead["id"] else f"{lead['name']} (team lead) assigned you: {task}\n") +
                 "Do your part now with your tools if needed. Be brief. End with a 2-3 line summary of what you did/found."))
             done.append(who)
         threads = [threading.Thread(target=work, args=(m,)) for m in workers]   # teammates work in parallel
@@ -1068,6 +1165,20 @@ class Api:
         fixers = list({e["id"]: e for e in done}.values()) or [lead]
         self._verify(sid, lead, fixers, cfg, st, target, pool=[lead] + mates)
         self._summarize(sid, lead, [lead] + mates, cfg, st, target)
+
+    def _phase_replies(self, sid: str, phase: str, since: float) -> list[tuple[str, str]]:
+        """(author, text) of the engineers' replies in `phase` since `since`, oldest first."""
+        with db() as c:
+            rows = c.execute("SELECT author, content, meta FROM messages WHERE session_id=? AND role='assistant' AND ts>=? "
+                             "ORDER BY ts", (sid, since)).fetchall()
+        out = []
+        for r in rows:
+            try:
+                if json.loads(r["meta"] or "{}").get("phase") == phase:
+                    out.append((r["author"], r["content"] or ""))
+            except ValueError:
+                pass
+        return out
 
     def _summarize(self, sid: str, lead: dict, pool: list[dict], cfg: dict, st: dict, target: dict | None) -> None:
         """The lead's closing hand-over (phase "summary"; the UI shows the latest one in its side panel)."""
@@ -1248,7 +1359,7 @@ class Api:
             elif m["role"] == "assistant":
                 lines.append(f"[{m['author']}]: {body}")
             elif m["role"] == "shell":
-                lines.append(f"[User ran shell command]: {body}")
+                lines.append(f"[Shell output]: {body}")
         return (
             f"You are {eng['name']}, {eng['role']}, in a shared team chat with the user and: {team}.\n"
             f"Working directory {where}: {eff_cwd(st, target)}  |  permission mode: {st['mode']}.\n"
@@ -1280,11 +1391,14 @@ class Api:
         one script, so heredocs survive. API engineers do all their work this way, so they get more rounds than CLIs."""
         text = self._run_once(sid, eng, cfg, st, target, directive, phase)
         for _ in range(12 if eng["provider"] == API else 3):
-            cmds = [blk.strip() for blk in re.findall(r"```run\s*\n(.*?)```", text, re.S) if blk.strip()] \
-                if phase != "summary" and (st["mode"] in ("plan", "edit") or (eng["provider"] == API and st["mode"] == "auto")) else []
-            if not cmds or sid in self.stopped or orch.is_down(eng["id"]):
+            brokered = phase != "summary" and (st["mode"] in ("plan", "edit") or (eng["provider"] == API and st["mode"] == "auto"))
+            block = aether_block(text) if brokered else {}
+            files = [f for f in (block.get("files") or []) if isinstance(f, dict)][:20]
+            cmds = (run_blocks(text) + [c.strip() for c in (block.get("commands") or []) if isinstance(c, str) and c.strip()]) \
+                if brokered else []
+            if not (cmds or files) or sid in self.stopped or orch.is_down(eng["id"]):
                 break
-            results = []
+            results = [self._write_files(sid, files, st, target)] if files else []
             for cmd in cmds[:4]:
                 blocked = self._kill_guard(cmd, st, target) or next(
                     (why for ln in cmd.splitlines() if (why := self._port_guard(ln, target))), None)
@@ -1299,8 +1413,9 @@ class Api:
                 else:
                     results.append(f"$ {cmd}\n[skipped — the user did not approve this command]")
             text = self._run_once(sid, eng, cfg, st, target, phase=phase, directive=(
-                "Results of the commands you asked for:\n" + "\n\n".join(results) +
-                "\n\nContinue your task. If you still need a command, output another ```run block; otherwise finish with your answer."))
+                "Results of the files and commands you asked for:\n" + "\n\n".join(results) +
+                "\n\nContinue your task. If you still need files or commands, output another ```aether / ```run block; "
+                "otherwise finish with your answer."))
         return text
 
     SERVER_CMD = re.compile(r"http\.server|uvicorn|gunicorn|flask|vite|next (?:dev|start)|npm (?:run )?(?:dev|start)|php -S|serve\b|runserver|--port|--listen|PORT=", re.I)
@@ -1489,6 +1604,57 @@ class Api:
         with db() as c:
             c.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
                       (mid, sid, time.time(), "assistant", author, text, json.dumps(meta)))
+
+    def _write_files(self, sid: str, files: list[dict], st: dict, target: dict | None) -> str:
+        """Write the files from an ```aether block into the project folder (Edit/Auto mode only; paths must stay
+        inside it). Shown in the chat like a shell step; returns the report sent back to the engineer."""
+        mid = uid()
+        names = ", ".join(str(f.get("path", "?")) for f in files)
+        self.emit({"t": "start", "sid": sid, "mid": mid, "author": "Shell", "eid": "shell", "shell": f"write {names}"})
+        report: list[str] = []
+        root = eff_cwd(st, target)
+        for f in files:
+            rel, content = str(f.get("path") or "").strip(), f.get("content")
+            if not isinstance(content, str):
+                report.append(f"✕ {rel or '?'}: no \"content\" string")
+                continue
+            if st["mode"] not in ("edit", "auto"):
+                report.append(f"✕ {rel}: not written — {st['mode'].title()} mode does not allow changing files")
+                continue
+            norm = os.path.normpath(rel) if rel else ""
+            if not norm or norm.startswith("..") or os.path.isabs(norm) or norm == ".":
+                report.append(f"✕ {rel or '?'}: not written — use a path inside the project folder")
+                continue
+            data = content.encode("utf-8")
+            if len(data) > 2 << 20:
+                report.append(f"✕ {norm}: not written — larger than 2 MB")
+                continue
+            try:
+                if target:
+                    d = os.path.dirname(norm)
+                    script = f"{remote_cd(root)} && {'mkdir -p ' + shlex.quote(d) + ' && ' if d else ''}cat > {shlex.quote(norm)}"
+                    r = subprocess.run(ssh_argv(target, script), input=data, capture_output=True, timeout=60, env=ENV)
+                    if r.returncode:
+                        raise OSError((r.stderr.decode(errors="replace").strip().splitlines() or ["ssh write failed"])[-1])
+                else:
+                    base = Path(os.path.expanduser(root)).resolve()
+                    dest = (base / norm).resolve()
+                    if base not in dest.parents:
+                        raise OSError("outside the project folder")
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(data)
+                lines = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
+                report.append(f"✓ {norm} ({len(data)} bytes, {lines} lines)")
+                self._acted.add(sid)
+            except Exception as exc:
+                report.append(f"✕ {norm}: {str(exc)[:160]}")
+        body = f"$ write {names}\n" + "\n".join(report)
+        self.emit({"t": "text", "sid": sid, "mid": mid, "d": "\n".join(report)})
+        self._store_assistant(sid, mid, "Shell", body, {"shell": True})
+        with db() as c:
+            c.execute("UPDATE messages SET role='shell' WHERE id=?", (mid,))
+        self.emit({"t": "end", "sid": sid, "mid": mid, "ok": True, "content": body})
+        return body
 
     def _shell(self, sid: str, cmd: str, st: dict, target: dict | None) -> str:
         mid = uid()
