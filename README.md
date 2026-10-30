@@ -80,6 +80,10 @@ AETHER_WEB_TOKEN=pick-a-long-random-string ./run-web.sh --host 0.0.0.0
 # then browse to http://<mac-ip>:3910/#token=pick-a-long-random-string
 ```
 
+For a front end on the same Mac, serve on a Unix socket instead of a TCP port
+(`--socket PATH`, created 0600, so only your user's processes can connect); the llm
+panel does this and serves the chat at `/chat/`.
+
 All URLs in the page are relative, so it also works behind a path prefix: a reverse proxy
 can serve it at e.g. `/chat/` (forward `api/*` and the `events` stream unbuffered).
 

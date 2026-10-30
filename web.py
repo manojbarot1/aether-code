@@ -20,6 +20,9 @@ import json
 import os
 import queue
 import re
+import signal
+import socket
+import socketserver
 import sys
 import threading
 import traceback
@@ -211,23 +214,58 @@ def make_handler(api: WebApi, token: str):
     return Handler
 
 
+class UnixHTTPServer(socketserver.ThreadingUnixStreamServer):
+    """HTTP on a Unix socket: no TCP port, and only this user's processes can connect."""
+    daemon_threads = True
+
+    def get_request(self):
+        conn, _ = super().get_request()
+        return conn, ("local", 0)   # BaseHTTPRequestHandler expects a (host, port) client address
+
+
+def unix_server(path: str, handler) -> UnixHTTPServer:
+    if os.path.exists(path):
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            probe.connect(path)
+            raise SystemExit(f"Another Aether web server is already listening on {path}")
+        except (ConnectionRefusedError, FileNotFoundError):
+            os.unlink(path)   # left over from a server that did not shut down cleanly
+        finally:
+            probe.close()
+    old = os.umask(0o177)     # socket file is created 0600
+    try:
+        return UnixHTTPServer(path, handler)
+    finally:
+        os.umask(old)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Aether Lite in a browser")
     ap.add_argument("--host", default=os.environ.get("AETHER_WEB_HOST", "127.0.0.1"))
     ap.add_argument("--port", type=int, default=int(os.environ.get("AETHER_WEB_PORT", "3910")))
+    ap.add_argument("--socket", default=os.environ.get("AETHER_WEB_SOCKET", ""),
+                    help="serve on this Unix socket instead of a TCP port (for a front end such as the llm panel)")
     args = ap.parse_args()
     token = os.environ.get("AETHER_WEB_TOKEN", "")
-    if args.host not in LOOPBACK and not token:
+    if not args.socket and args.host not in LOOPBACK and not token:
         print(f"Refusing to listen on {args.host} without AETHER_WEB_TOKEN: engineers can run commands on this Mac.",
               file=sys.stderr)
         return 1
 
     app.init_db()
     api = WebApi()
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(api, token))
-    server.daemon_threads = True
-    shown = f"[{args.host}]" if ":" in args.host else args.host
-    print(f"Aether web on http://{shown}:{args.port}", flush=True)
+    if args.socket:
+        server = unix_server(args.socket, make_handler(api, token))
+        print(f"Aether web on unix socket {args.socket}", flush=True)
+    else:
+        server = ThreadingHTTPServer((args.host, args.port), make_handler(api, token))
+        server.daemon_threads = True
+        shown = f"[{args.host}]" if ":" in args.host else args.host
+        print(f"Aether web on http://{shown}:{args.port}", flush=True)
+    def on_term(*_):          # ./llm stop sends SIGTERM: shut down like Ctrl-C (stops engineers, removes the socket)
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, on_term)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -235,6 +273,11 @@ def main() -> int:
     finally:
         for sid in list(api.procs):
             api.stop(sid)
+        if args.socket:
+            try:
+                os.unlink(args.socket)
+            except OSError:
+                pass
     return 0
 
 
