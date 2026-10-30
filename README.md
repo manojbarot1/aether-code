@@ -58,6 +58,33 @@ On first launch, open **Settings (⚙)** and paste your API key for any engineer
 
 ---
 
+## Browser mode
+
+The same app in a browser tab, with no window and no pywebview needed:
+
+```bash
+./run-web.sh                      # http://127.0.0.1:3910
+./run-web.sh --port 4000
+```
+
+It shares `~/.aether-lite` with the desktop app, so sessions, engineers, API keys and
+memory are the same in both. `web.py` serves `ui.html` and swaps the pywebview bridge
+for `web/bridge.js`: UI calls become `POST /api/<method>` (only the methods the UI uses),
+and engine events stream to every open tab over Server-Sent Events (`GET /events`).
+
+Engineers can run commands and edit files on this Mac, so the server listens on
+`127.0.0.1` only. To open it from another device, set a token:
+
+```bash
+AETHER_WEB_TOKEN=pick-a-long-random-string ./run-web.sh --host 0.0.0.0
+# then browse to http://<mac-ip>:3910/#token=pick-a-long-random-string
+```
+
+Differences from the desktop app: "Choose in Finder…" focuses the folder browser's path
+field instead of opening a native dialog, and copy/paste uses the browser's clipboard.
+
+---
+
 ## File Structure
 
 ```
@@ -70,6 +97,9 @@ aether-lite/
 ├── ctxmenu.js           # Context menu for the webview
 ├── run.sh               # Launch: .venv/bin/python app.py
 ├── run-v2.sh            # Launch: v2/ide.py
+├── web.py               # Browser mode: serves ui.html + the engine over HTTP/SSE
+├── run-web.sh           # Launch: web.py (http://127.0.0.1:3910)
+├── web/bridge.js        # pywebview stand-in for the browser
 ├── assets/
 │   ├── AetherLite.icns  # macOS Dock icon
 │   └── icon_1024.png    # Source PNG
