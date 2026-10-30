@@ -15,12 +15,14 @@ unless AETHER_WEB_TOKEN is set; every API call and the event stream then need th
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import queue
 import re
 import sys
 import threading
+import traceback
 import types
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -49,6 +51,11 @@ STATIC = {"/ctxmenu.js": HERE / "ctxmenu.js", "/web/bridge.js": HERE / "web" / "
 MAX_BODY = 2 * 1024 * 1024
 
 
+def log(msg: str) -> None:
+    """One line to stdout (the server log), timestamped."""
+    print(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} {msg}", flush=True)
+
+
 class WebApi(app.Api):
     """The desktop engine with its window replaced by a fan-out to every open browser tab."""
 
@@ -56,8 +63,16 @@ class WebApi(app.Api):
         super().__init__()
         self.clients: set[queue.Queue] = set()
         self.clients_lock = threading.Lock()
+        self.authors: dict[str, str] = {}   # message id -> engineer, to name failed replies in the log
 
     def emit(self, ev: dict) -> None:
+        # Failed engineer replies show in the chat; also log them so they can be found later.
+        if ev.get("t") == "start" and ev.get("mid"):
+            self.authors[ev["mid"]] = ev.get("author") or "?"
+        elif ev.get("t") == "end" and ev.get("mid"):
+            who = self.authors.pop(ev["mid"], "?")
+            if ev.get("error") and ev["error"] != "Stopped":
+                log(f"engineer {who} failed: {str(ev['error'])[:400]}")
         with self.clients_lock:
             for q in list(self.clients):
                 q.put(ev)
@@ -167,6 +182,7 @@ def make_handler(api: WebApi, token: str):
                 result = getattr(api, name)(*args)
                 return self._send(200, {"result": result})
             except Exception as exc:  # the engine reports errors as values; anything else is a bug worth showing
+                log(f"api {name} failed:\n{traceback.format_exc()}")
                 return self._send(500, {"error": f"{type(exc).__name__}: {str(exc)[:300]}"})
 
         def _events(self) -> None:
