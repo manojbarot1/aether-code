@@ -452,6 +452,17 @@ VERIFY = (
     "After VERDICT: PASS give the user the final answer: URL / how to run, and what you tested. Never write PASS without evidence from commands you ran in this step.")
 
 
+SUMMARY = (
+    "The job is finished. As TEAM LEAD, write the final hand-over for the user. Do not run any commands or change files now; "
+    "use only what really happened in this session (the messages above) and never claim something works unless it was shown.\n"
+    "Use exactly these headings:\n"
+    "## Result\nOne or two lines: what was built or changed, and whether it works (say how it was checked).\n"
+    "## Where\nThe folder and the main files.\n"
+    "## How to run\nThe exact commands and/or URL.\n"
+    "## Who did what\nOne line per engineer.\n"
+    "## Open issues\nWhat is not done, broken or unverified, and the next step. Write 'None' if there are none.")
+
+
 _READY: dict[tuple[str, str], tuple[float, bool]] = {}
 
 
@@ -711,6 +722,61 @@ class Api:
             c.execute("UPDATE sessions SET settings=? WHERE id=?", (json.dumps(settings), sid))
         return True
 
+    def make_dir(self, target_id: str, path: str) -> dict:
+        """Create a folder (for the folder browser's "New folder"); returns its full path."""
+        cfg = load_cfg()
+        target = next((h for h in cfg["ssh"] if h["id"] == target_id), None) if target_id != "local" else None
+        try:
+            if target:
+                r = subprocess.run(ssh_argv(target, f"mkdir -p {shlex.quote(path).replace(chr(39) + '~', '~' + chr(39), 1)} && "
+                                                    f"{remote_cd(path)} && pwd"), capture_output=True, text=True, timeout=20, env=ENV)
+                if r.returncode:
+                    return {"path": path, "error": (r.stderr.strip().splitlines() or ["mkdir failed"])[-1][:200]}
+                return {"path": r.stdout.strip().splitlines()[-1], "error": None}
+            p = Path(os.path.expanduser(path)).resolve()
+            p.mkdir(parents=True, exist_ok=True)
+            return {"path": str(p), "error": None}
+        except Exception as exc:
+            return {"path": path, "error": str(exc)[:200]}
+
+    def upload_file(self, sid: str, name: str, data_b64: str) -> dict:
+        """Save a file the user attached into <working folder>/attachments/ (on the SSH host for remote sessions).
+        Returns the full path, which the UI adds to the message so engineers can open it."""
+        import base64
+        cfg = load_cfg()
+        st = {**default_settings(cfg), **self._session_settings(sid)}
+        target = next((h for h in cfg["ssh"] if h["id"] == st.get("target")), None)
+        safe = re.sub(r"[^\w.\- ]+", "_", Path(name or "file").name).strip(" .") or "file"
+        try:
+            data = base64.b64decode(data_b64 or "", validate=True)
+        except Exception:
+            return {"error": "could not read the file"}
+        try:
+            if target:
+                folder = eff_cwd(st, target).rstrip("/") + "/attachments"
+                q = shlex.quote(folder).replace(chr(39) + "~", "~" + chr(39), 1)
+                stem, ext = os.path.splitext(safe)
+                script = (f"mkdir -p {q} && cd {q} && f={shlex.quote(safe)}; n=2; "
+                          f"while [ -e \"$f\" ]; do f={shlex.quote(stem)}-$n{shlex.quote(ext)}; n=$((n+1)); done; "
+                          "cat > \"$f\" && echo \"$(pwd)/$f\"")
+                r = subprocess.run(ssh_argv(target, script), input=data, capture_output=True, timeout=120, env=ENV)
+                if r.returncode:
+                    return {"error": (r.stderr.decode(errors="replace").strip().splitlines() or ["upload failed"])[-1][:200]}
+                return {"path": r.stdout.decode().strip().splitlines()[-1], "size": len(data), "error": None}
+            cwd = Path(os.path.expanduser(st.get("cwd") or "~")).resolve()
+            app_dir = Path(__file__).resolve().parent
+            if cwd == Path.home().resolve() or cwd == app_dir or app_dir in cwd.parents:
+                cwd = Path.home() / "aether-projects"          # never drop files into home or Aether's own source
+            folder = cwd / "attachments"
+            folder.mkdir(parents=True, exist_ok=True)
+            dest, n = folder / safe, 2
+            while dest.exists():
+                dest, n = folder / f"{Path(safe).stem}-{n}{Path(safe).suffix}", n + 1
+            dest.write_bytes(data)
+            return {"path": str(dest), "size": len(data), "error": None}
+        except Exception as exc:
+            return {"error": str(exc)[:200]}
+
     def pick_dir(self) -> str | None:
         res = self.window.create_file_dialog(webview.FOLDER_DIALOG) if self.window else None
         return res[0] if res else None
@@ -878,6 +944,7 @@ class Api:
                 who, reply = self._run_covered(sid, rt.lead, cands, cfg, st, target, phase="build", directive=QUICK, what="build")
                 if st["mode"] in ("edit", "auto") and self._changed_something(sid) and sid not in self.stopped:
                     self._auto_verify(sid, who, reply, cfg, st, target)
+                    self._summarize(sid, who, cands, cfg, st, target)
             self._learn(sid, cfg)
         finally:
             self.procs.pop(sid, None)
@@ -1000,6 +1067,14 @@ class Api:
             return
         fixers = list({e["id"]: e for e in done}.values()) or [lead]
         self._verify(sid, lead, fixers, cfg, st, target, pool=[lead] + mates)
+        self._summarize(sid, lead, [lead] + mates, cfg, st, target)
+
+    def _summarize(self, sid: str, lead: dict, pool: list[dict], cfg: dict, st: dict, target: dict | None) -> None:
+        """The lead's closing hand-over (phase "summary"; the UI shows the latest one in its side panel)."""
+        if sid in self.stopped:
+            return
+        self._post(sid, "system", "Team", f"Summary · {lead['name']} wraps up", {"phase": "summary"})
+        self._run_covered(sid, lead, pool, cfg, st, target, SUMMARY, phase="summary", what="summary")
 
     URL_RE = re.compile(r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\d{1,3}(?:\.\d{1,3}){3}):\d+[^\s)\]>\"'`*]*")
 
@@ -1206,7 +1281,7 @@ class Api:
         text = self._run_once(sid, eng, cfg, st, target, directive, phase)
         for _ in range(12 if eng["provider"] == API else 3):
             cmds = [blk.strip() for blk in re.findall(r"```run\s*\n(.*?)```", text, re.S) if blk.strip()] \
-                if st["mode"] in ("plan", "edit") or (eng["provider"] == API and st["mode"] == "auto") else []
+                if phase != "summary" and (st["mode"] in ("plan", "edit") or (eng["provider"] == API and st["mode"] == "auto")) else []
             if not cmds or sid in self.stopped or orch.is_down(eng["id"]):
                 break
             results = []
@@ -1323,7 +1398,7 @@ class Api:
 
     def _run_once(self, sid: str, eng: dict, cfg: dict, st: dict, target: dict | None, directive: str = "", phase: str = "") -> str:
         mid = uid()
-        self.emit({"t": "start", "sid": sid, "mid": mid, "author": eng["name"], "eid": eng["id"],
+        self.emit({"t": "start", "sid": sid, "mid": mid, "author": eng["name"], "eid": eng["id"], "phase": phase,
                    "via": "Mac → VM over ssh" if target and (phase == "verify" or not remote_ready(eng, target)) else ""})
         parser, tools, ok, error = Parser(eng["provider"]), {}, True, None
         thoughts: list[str] = []

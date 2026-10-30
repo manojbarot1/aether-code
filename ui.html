@@ -143,6 +143,26 @@ select.field option{color:#111}
 .pchip{display:flex;gap:7px;align-items:center;padding:3px 10px;border-radius:var(--r-pill);background:var(--glass-sunken);box-shadow:inset 0 0 0 .5px var(--glass-line);font-size:11.5px;cursor:pointer;max-width:100%}
 .pchip .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:230px;color:var(--text-2)}.pchip .e{color:var(--text-3);font-variant-numeric:tabular-nums}
 .pchip.ph{cursor:default;background:var(--accent-soft);color:var(--accent);font-weight:600}
+/* right-hand summary: the lead's wrap-up of the last finished job */
+#app.sum-open{grid-template-columns:248px minmax(0,1fr) 320px}
+#sum{display:none;flex-direction:column;min-height:0;border-radius:var(--r-xl);overflow:hidden}
+#app.sum-open #sum{display:flex}
+#sum .hd{display:flex;align-items:center;gap:6px;padding:12px 12px 10px 16px;border-bottom:1px solid var(--glass-line)}
+#sum .hd b{flex:1;font-size:14px;font-weight:650}
+#sum .meta{font-size:11.5px;color:var(--text-3);padding:8px 16px 0}
+#sum .bd{flex:1;overflow:auto;padding:4px 16px 16px;user-select:text;-webkit-user-select:text}
+#sum .bd .bub{padding:0}
+@media (max-width:1100px){#app.sum-open{grid-template-columns:248px minmax(0,1fr)}
+  #app.sum-open #sum{position:fixed;right:12px;top:12px;bottom:12px;width:min(340px,90vw);z-index:8;background:var(--glass-strong)}}
+/* attachments */
+#att{display:flex;gap:6px;flex-wrap:wrap;padding:6px 14px 0}#att:empty{display:none}
+.achip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 2px 0 10px;border-radius:var(--r-pill);background:var(--glass-sunken);box-shadow:inset 0 0 0 .5px var(--glass-line);font-size:11.5px;max-width:280px}
+.achip .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.achip .s{color:var(--text-3);flex:none}.achip.err{color:var(--err)}
+.achip button{border:0;background:none;color:var(--text-3);cursor:pointer;padding:0 6px;font-size:12px}
+#comp .btn.icon{--h:40px;width:40px;padding:0;font-size:16px}
+#main.drop{box-shadow:inset 0 0 0 2px var(--accent),var(--glass-shadow)}
+#cwd{max-width:240px;justify-content:flex-start;overflow:hidden;text-overflow:ellipsis}
+html.web .desk-only{display:none}
 #jump{position:absolute;left:50%;transform:translateX(-50%);bottom:132px;z-index:6;box-shadow:0 8px 22px -6px rgba(0,0,0,.45)}#jump[hidden]{display:none}
 </style></head>
 <body>
@@ -153,7 +173,7 @@ select.field option{color:#111}
     <button class="btn primary" onclick="newSession()">＋ New session</button>
     <div class="sec">Sessions</div>
     <div id="sessions" class="list" style="flex:1"></div>
-    <div class="sec">Engineers <span class="stat" id="stat" onclick="refreshStatus()" title="Click to re-check"></span> <button class="btn sm icon ghost" onclick="editEngineer()" title="Add engineer">＋</button></div>
+    <div class="sec">Engineers <span class="stat" id="stat" onclick="refreshStatus(true)" title="Click to re-check"></span> <button class="btn sm icon ghost" onclick="editEngineer()" title="Add engineer">＋</button></div>
     <div id="engs" class="list" style="max-height:34%"></div>
     <div style="display:flex;gap:6px;margin-top:10px">
       <button class="btn sm" style="flex:1" onclick="memModal()">🧠 Memory</button>
@@ -165,22 +185,31 @@ select.field option{color:#111}
             <span class="title" id="title" ondblclick="renameCur()" title="Double-click to rename"></span>
       <div class="segmented" id="teamseg" title="Team: big jobs are split between engineers; questions and small jobs go to one engineer. Solo: one engineer always."><button id="solo" onclick="setTeam(false)">Solo</button><button id="team" onclick="setTeam(true)">Team</button></div>
       <select id="target" class="field" onchange="setSet()" title="Where commands run"></select>
-      <input class="field" id="cwd" class="field" readonly onclick="pickDir()" title="Working directory — click to change">
+      <button class="btn" id="cwd" onclick="pickDir()" title="Working directory — click to change"></button>
       <select id="mode" class="field" onchange="setSet()" title="What engineers may do">
         <option value="chat">Chat only</option><option value="plan">Plan (read files)</option>
         <option value="edit">Edit files</option><option value="auto">Auto (run commands)</option></select>
         <div class="segmented" id="apprseg" title="Auto: engineers' commands run without asking (only catastrophic ones like sudo or wiping the disk still ask). Ask: every command needs your OK."><button id="ap-on" onclick="setAppr('full')">⚡ Auto</button><button id="ap-off" onclick="setAppr('ask')">Ask</button></div>
+      <button class="btn" id="sumbtn" hidden onclick="toggleSum()" title="The lead's summary of the last finished job">📋 Summary</button>
     </div>
     <div id="msgs"></div>
     <div id="progress"></div>
 <button id="jump" class="btn sm primary" hidden onclick="jumpLatest()">↓ Latest activity</button>
 <div id="chips"></div>
+    <div id="att"></div>
     <div id="comp">
       <div id="hint" class="glass"></div>
+      <button class="btn icon" id="attbtn" onclick="$('file').click()" title="Attach files — they are saved in the working folder (you can also drop or paste them)">📎</button>
+      <input type="file" id="file" multiple hidden>
       <textarea id="in" rows="1" placeholder="Message the team…  @name to target · !cmd to run a shell command · /remember …"></textarea>
       <button id="go" class="btn primary" onclick="send()">Send</button>
     </div>
   </section>
+  <aside id="sum" class="glass strong">
+    <div class="hd"><b>📋 Summary</b><button class="btn sm ghost" onclick="copySum()" title="Copy the summary">⧉ Copy</button><button class="btn sm icon ghost" onclick="toggleSum(false)" title="Close">✕</button></div>
+    <div class="meta" id="summeta"></div>
+    <div class="bd"><div class="bub" id="sumbody"></div></div>
+  </aside>
 </div>
 <div id="modal" onclick="if(event.target===this)closeModal()"><div id="card" class="glass"></div></div>
 
@@ -191,6 +220,8 @@ const $=id=>document.getElementById(id);
 const api=()=>window.pywebview.api;
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const eng=id=>S.cfg.engineers.find(e=>e.id===id);
+// Rebuilding identical markup restarts animations and closes open selects, which shows as flicker.
+const setHTML=(el,h)=>{if(el&&el._h!==h){el.innerHTML=h;el._h=h}};
 const engByName=n=>S.cfg.engineers.find(e=>e.name===n);
 
 function md(src){
@@ -229,25 +260,32 @@ function jumpLatest(){scroll(true)}
 (function(){const e=document.getElementById('msgs');if(e)e.addEventListener('scroll',()=>{stick=e.scrollHeight-e.scrollTop-e.clientHeight<70;const j=$('jump');if(j)j.hidden=stick||!S.busy})})();
 function fmtEl(t0){const s=Math.round((Date.now()-t0)/1000);return s<60?s+'s':Math.floor(s/60)+'m '+(s%60)+'s'}
 function nowText(box,txt){const n=box.el.querySelector('.now');if(n&&box.state!==txt){n.textContent=txt;box.state=txt}}
+// Chips are rebuilt only when engineers start or finish; step text and timers update in place,
+// so the spinners keep turning instead of restarting every second.
 function renderProgress(){const p=$('progress');if(!p)return;const ls=Object.entries(live).filter(([,b])=>!b.shell);
-  p.innerHTML=ls.length?(PH?`<span class="pchip ph">${esc(PH)}</span>`:'')+ls.map(([id,b])=>`<span class="pchip" data-m="${id}"><span class="spin"></span><b>${esc(b.author)}</b><span class="t">${esc(b.step||'Starting…')}</span><span class="e">${fmtEl(b.t0)}</span></span>`).join(''):''}
+  const key=ls.length?PH+'|'+ls.map(([id])=>id).join(','):'';
+  if(p._k!==key){p._k=key;p.innerHTML=ls.length?(PH?`<span class="pchip ph">${esc(PH)}</span>`:'')+ls.map(([id,b])=>`<span class="pchip" data-m="${id}"><span class="spin"></span><b>${esc(b.author)}</b><span class="t"></span><span class="e"></span></span>`).join(''):''}
+  for(const [id,b] of ls){const c=p.querySelector(`[data-m="${id}"]`);if(!c)continue;const t=c.querySelector('.t'),e=c.querySelector('.e'),st=b.step||'Starting…',el=fmtEl(b.t0);
+    if(t.textContent!==st)t.textContent=st;if(e.textContent!==el)e.textContent=el}}
 document.addEventListener('click',e=>{const c=e.target.closest&&e.target.closest('.pchip[data-m]');if(c&&live[c.dataset.m]){live[c.dataset.m].el.scrollIntoView({behavior:'smooth',block:'center'});const d=live[c.dataset.m].el.querySelector('.actv');if(d)d.classList.add('open')}});
 setInterval(()=>{for(const b of Object.values(live)){if(!b.shell){const el=b.el.querySelector('.el');if(el)el.textContent=fmtEl(b.t0)}}renderProgress()},1000);
 
 function renderMsgs(ms){
+  const sm=[...ms].reverse().find(m=>m.role==='assistant'&&m.meta?.phase==='summary');
+  showSum(sm?{author:sm.author,text:sm.content,ts:sm.ts}:null,false);
   $('msgs').innerHTML=ms.length?ms.map(msgHtml).join(''):`<div class="empty"><b>Aether Lite</b>Ask the team anything. Use @name to pick an engineer.</div>`;scroll();
 }
 function renderSide(){
   const live_=S.sessions.filter(x=>!x.archived),arch=S.sessions.filter(x=>x.archived);
   const row=(x,a)=>`<div class="item ${x.id===S.cur?.id?'on':''}" onclick="openSession('${x.id}')" title="${esc(x.summary||x.title)}"><span class="t">${esc(x.title)}</span><span class="x" title="Rename" onclick="event.stopPropagation();renameSession('${x.id}')">✎</span><span class="x" title="${a?'Restore':'Archive'}" onclick="event.stopPropagation();archiveSession('${x.id}',${!a})">${a?'↩':'🗄'}</span><span class="x" title="Delete" onclick="event.stopPropagation();delSession('${x.id}')">✕</span></div>`;
-  $('sessions').innerHTML=live_.map(x=>row(x,false)).join('')+(arch.length?`<div class="sec" style="cursor:pointer" onclick="S.showArch=!S.showArch;renderSide()">${S.showArch?'▾':'▸'} Archived (${arch.length})</div>`+(S.showArch?arch.map(x=>row(x,true)).join(''):''):'');
+  setHTML($('sessions'),live_.map(x=>row(x,false)).join('')+(arch.length?`<div class="sec" style="cursor:pointer" onclick="S.showArch=!S.showArch;renderSide()">${S.showArch?'▾':'▸'} Archived (${arch.length})</div>`+(S.showArch?arch.map(x=>row(x,true)).join(''):''):''));
   const act=S.cur?.settings.active||[];
-  $('engs').innerHTML=S.cfg.engineers.map(e=>`<div class="item eng ${act.includes(e.id)?'on':''}" onclick="toggleEng('${e.id}')"><div class="av" style="background:${e.color}">${esc(e.avatar||'●')}<i class="sdot ${(S.status.engineers[e.id]||{}).state||''}" title="${esc((S.status.engineers[e.id]||{}).detail||'checking…')}"></i></div><div class="t"><div>${esc(e.name)}${act[0]===e.id&&act.length>1&&S.cur.settings.team?' <span class="badge accent">lead</span>':''}</div><div class="sub">${esc(e.role)}</div></div><span class="x" onclick="event.stopPropagation();editEngineer('${e.id}')">✎</span></div>`).join('');
+  setHTML($('engs'),S.cfg.engineers.map(e=>`<div class="item eng ${act.includes(e.id)?'on':''}" onclick="toggleEng('${e.id}')"><div class="av" style="background:${e.color}">${esc(e.avatar||'●')}<i class="sdot ${(S.status.engineers[e.id]||{}).state||''}" title="${esc((S.status.engineers[e.id]||{}).detail||'checking…')}"></i></div><div class="t"><div>${esc(e.name)}${act[0]===e.id&&act.length>1&&S.cur.settings.team?' <span class="badge accent">lead</span>':''}</div><div class="sub">${esc(e.role)}</div></div><span class="x" onclick="event.stopPropagation();editEngineer('${e.id}')">✎</span></div>`).join(''));
   $('title').textContent=S.cur?.title||'';{const on=((S.cur?.settings.autoapprove)||'full')!=='ask';if($('ap-on')){$('ap-on').setAttribute('aria-pressed',on);$('ap-off').setAttribute('aria-pressed',!on)}}
   const es=S.cfg.engineers,on=es.filter(e=>(S.status.engineers[e.id]||{}).state==='online').length;
-  $('stat').innerHTML=Object.keys(S.status.engineers).length?`<span style="color:${on===es.length?'var(--ok)':on?'var(--warn)':'var(--err)'}">●</span> ${on}/${es.length} online`:'checking…';
-  $('target').innerHTML='<option value="local">💻 This Mac</option>'+S.cfg.ssh.map(h=>`<option value="${h.id}">${({online:'🟢',offline:'🔴'})[(S.status.ssh[h.id]||{}).state]||'⚪️'} ${esc(h.name)}</option>`).join('');
-  const st=S.cur?.settings||{};$('target').value=st.target||'local';$('mode').value=st.mode||'edit';const tg=S.cfg.ssh.find(h=>h.id===st.target);$('cwd').value=tg?(st.rcwd||tg.cwd||'~'):(st.cwd||'');$('cwd').title=tg?'Folder on '+tg.name+' — click to change':'Working directory — click to change';
+  setHTML($('stat'),Object.keys(S.status.engineers).length?`<span style="color:${on===es.length?'var(--ok)':on?'var(--warn)':'var(--err)'}">●</span> ${on}/${es.length} online`:'checking…');
+  setHTML($('target'),'<option value="local">💻 This Mac</option>'+S.cfg.ssh.map(h=>`<option value="${h.id}">${({online:'🟢',offline:'🔴'})[(S.status.ssh[h.id]||{}).state]||'⚪️'} ${esc(h.name)}</option>`).join(''));
+  const st=S.cur?.settings||{};$('target').value=st.target||'local';$('mode').value=st.mode||'edit';const tg=S.cfg.ssh.find(h=>h.id===st.target);{const cp=tg?(st.rcwd||tg.cwd||'~'):(st.cwd||'');setHTML($('cwd'),'📁 '+esc(cp.replace(/\/+$/,'').split('/').pop()||cp||'Choose folder'));$('cwd').title=(tg?'Folder on '+tg.name:'Working directory')+': '+(cp||'not set')+' — click to change'}
   const tm=!!st.team&&act.length>1;$('solo').setAttribute('aria-pressed',!tm);$('team').setAttribute('aria-pressed',tm);
   const names=act.map(i=>eng(i)?.name).filter(Boolean);$('chips').textContent=!names.length?'No engineer selected':tm?`Team: ${names[0]} leads → ${names.slice(1).join(', ')} work → ${names[0]} reviews`:`Replying: ${names.join(', ')} · @name to choose`;
 }
@@ -279,8 +317,13 @@ async function browse(path){const tid=S.cur.settings.target;BR.tid=tid;
   ${r.error?`<p class="sm" style="color:var(--err)">${esc(r.error)}</p>`:''}
   <div class="glass sunken" style="max-height:260px;overflow:auto;padding:6px;margin:8px 0;border-radius:var(--r-md)">${(r.dirs||[]).map(d=>`<div class="item" data-d="${esc(d)}" onclick="browse(BR.path.replace(/\\/$/,'')+'/'+this.dataset.d)">📁 <span class="t">${esc(d)}</span></div>`).join('')||'<p class="sm" style="padding:8px">No sub-folders</p>'}</div>
   ${recents.length?`<div class="sm">Recent: ${recents.map(x=>`<a href="#" onclick="browse(this.dataset.p);return false" data-p="${esc(x)}" style="color:var(--accent);margin-right:8px">${esc(x)}</a>`).join('')}</div>`:''}
-  <div class="row">${tid==='local'?'<button class="btn" onclick="finderPick()">Choose in Finder…</button>':''}<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="useFolder()">Use this folder</button></div>`)}
+  <div class="row"><button class="btn" onclick="newFolder()" style="margin-right:auto">＋ New folder</button>${tid==='local'?'<button class="btn desk-only" onclick="finderPick()">Choose in Finder…</button>':''}<button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="useFolder()">Use this folder</button></div>`)}
 function useFolder(){const p=$('br_path').value.trim()||BR.path;if(BR.tid==='local')S.cur.settings.cwd=p;else S.cur.settings.rcwd=p;closeModal();saveSettings()}
+async function newFolder(){const base=BR.path;const n=await askBox('New folder in '+base,'','Create');
+  if(!n||!n.trim())return browse(base);
+  const r=await api().make_dir(BR.tid,base.replace(/\/$/,'')+'/'+n.trim());
+  if(r.error){await askBox('Could not create the folder: '+r.error,null,'OK');return browse(base)}
+  browse(r.path)}
 async function finderPick(){const d=await api().pick_dir();if(d){S.cur.settings.cwd=d;closeModal();saveSettings()}}
 function setAppr(v){S.cur.settings.autoapprove=v;saveSettings()}
 function setTeam(v){S.cur.settings.team=v;saveSettings()}
@@ -290,7 +333,10 @@ function toggleEng(id){const a=S.cur.settings.active;const i=a.indexOf(id);i<0?a
 const live={};
 async function send(){
   if(S.busy){await api().stop(S.cur.id);return}
-  const t=$('in').value.trim();if(!t)return;$('in').value='';autosize();
+  if(ATT.some(a=>a.state==='up')){$('chips').textContent='Waiting for the files to finish uploading…';return}
+  const ready=ATT.filter(a=>a.state==='ok');let t=$('in').value.trim();if(!t&&!ready.length)return;
+  if(ready.length)t=(t||'Please look at the attached files.')+'\n\nAttached files:\n'+ready.map(a=>`- ${a.path} (${fmtSize(a.size)})`).join('\n');
+  $('in').value='';autosize();ATT.length=0;renderAtt();
   const m=await api().send(S.cur.id,t);if(!m)return;
   if($('msgs').querySelector('.empty'))$('msgs').innerHTML='';
   $('msgs').insertAdjacentHTML('beforeend',msgHtml(m));scroll(true);setBusy(true);
@@ -305,12 +351,17 @@ window.onEvent=ev=>{
     const html=shell?`<div class="m" data-id="${ev.mid}">${avatar('')}<div class="bub shell"><div class="who">Shell</div><pre><code class="body">$ ${esc(ev.shell)}\n</code></pre></div></div>`
       :`<div class="m" data-id="${ev.mid}">${avatar(ev.author)}<div class="bub"><div class="who">${esc(ev.author)}${ev.via?`<span class="badge">${esc(ev.via)}</span>`:''}</div>${activityHtml({},true)}<div class="body cursor"></div></div></div>`;
     $('msgs').insertAdjacentHTML('beforeend',html);const el=$('msgs').lastElementChild;
-    live[ev.mid]={el,text:'',shell,t0:Date.now(),author:ev.author,steps:0,step:'Starting…'};scroll();renderProgress();
-  }else if(ev.t==='text'&&box){box.text+=ev.d;const b=box.el.querySelector('.body');if(box.shell)b.textContent+=ev.d;else{b.innerHTML=md(box.text);if(!box.shell){box.step='Writing the answer…';nowText(box,'Writing the answer…')}}scroll()}
+    live[ev.mid]={el,text:'',shell,t0:Date.now(),author:ev.author,steps:0,step:'Starting…',summary:ev.phase==='summary'};scroll();renderProgress();
+    if(ev.phase==='summary')showSum({author:ev.author,text:'',live:true},true);
+  }else if(ev.t==='text'&&box){box.text+=ev.d;const b=box.el.querySelector('.body');if(box.shell){b.textContent+=ev.d;scroll()}else{
+      // Re-rendering the markdown on every chunk rebuilds the whole reply many times a second (flicker); batch it.
+      if(!box.timer)box.timer=setTimeout(()=>{box.timer=0;b.innerHTML=md(box.text);if(box.summary)showSum({author:box.author,text:box.text,live:true});scroll()},120);
+      box.step='Writing the answer…';nowText(box,'Writing the answer…')}}
   else if(ev.t==='tool'&&box){const t=box.el.querySelector('.steps');const ex=box.el.querySelector('[id="t-'+CSS.escape(ev.tool.id)+'"]');
     if(ex){const o=ex.classList.contains('open');ex.outerHTML=toolHtml(ev.tool);if(o)box.el.querySelector('[id="t-'+CSS.escape(ev.tool.id)+'"]').classList.add('open')}else{t.insertAdjacentHTML('beforeend',toolHtml(ev.tool));box.steps++}box.step=(ev.tool.state==='running'?'▶ ':ev.tool.state==='error'?'✕ ':'✓ ')+ev.tool.name+(ev.tool.command?': '+ev.tool.command:'');nowText(box,box.step);scroll()}
   else if(ev.t==='thought'&&box){const st=box.el.querySelector('.steps');let th=st.lastElementChild;if(!th||!th.classList.contains('th')){st.insertAdjacentHTML('beforeend','<div class="step th"><b>Thinking</b><span></span></div>');th=st.lastElementChild;box.steps++}th.lastElementChild.textContent+=ev.d;box.step='Thinking…';nowText(box,'Thinking…');if(stick)st.scrollTop=st.scrollHeight;scroll()}
-  else if(ev.t==='end'&&box){const vd=(ev.content||'').match(/VERDICT:\s*(PASS|FAIL|UNVERIFIED)/);if(vd)box.el.querySelector('.who').insertAdjacentHTML('beforeend',`<span class="badge ${vd[1]==='PASS'?'ok':vd[1]==='FAIL'?'err':'warn'}">${vd[1]==='PASS'?'✓ verified':vd[1]==='FAIL'?'✕ failed':'unverified'}</span>`);const b=box.el.querySelector('.body');b.classList.remove('cursor');if(!box.shell)b.innerHTML=md(ev.content||'');
+  else if(ev.t==='end'&&box){const vd=(ev.content||'').match(/VERDICT:\s*(PASS|FAIL|UNVERIFIED)/);if(vd)box.el.querySelector('.who').insertAdjacentHTML('beforeend',`<span class="badge ${vd[1]==='PASS'?'ok':vd[1]==='FAIL'?'err':'warn'}">${vd[1]==='PASS'?'✓ verified':vd[1]==='FAIL'?'✕ failed':'unverified'}</span>`);const b=box.el.querySelector('.body');b.classList.remove('cursor');clearTimeout(box.timer);if(!box.shell)b.innerHTML=md(ev.content||'');
+    if(box.summary)showSum({author:box.author,text:ev.content||box.text,ts:Date.now()/1000},true);
     {const sm=box.el.querySelector('.actv>.sum');if(sm){const bad=ev.error&&ev.error!=='Stopped';const sp=sm.querySelector('.spin');if(sp)sp.outerHTML=`<span class="${bad?'bad':'ok'}">${bad?'✕':'✓'}</span>`;const n=box.steps;nowText(box,(n?n+' step'+(n===1?'':'s'):'No tool calls')+' · '+(ev.dur??Math.round((Date.now()-box.t0)/1000))+'s');const el=sm.querySelector('.el');if(el)el.textContent='';if(!n&&!box.el.querySelector('.step')){const d=box.el.querySelector('.actv');if(d)d.remove()}}}
     delete live[ev.mid];renderProgress();if(ev.memory)S.memory=ev.memory}
   else if(ev.t==='settings'){if(S.cur&&S.cur.id===ev.sid){S.cur.settings=ev.settings;renderSide();if(window.ideOnSettings)ideOnSettings(ev.settings)}}
@@ -321,6 +372,32 @@ window.onEvent=ev=>{
   else if(ev.t==='memory'){S.memory=ev.memory;if(ev.learned){const c=$('chips');const o=c.textContent;c.textContent='🧠 Memory updated';setTimeout(renderSide,2500)}}
   else if(ev.t==='idle'){PH='';renderProgress();$('jump')&&($('jump').hidden=true);setBusy(false);S.sessions.sort((a,b)=>0)}
 };
+// ── summary panel
+let SUM=null;   // {author, text, ts, live}
+function showSum(s,open){SUM=s;$('sumbtn').hidden=!s;if(!s){toggleSum(false);return}
+  $('summeta').textContent=s.author+(s.live?' · writing…':s.ts?' · '+new Date(s.ts*1000).toLocaleString():'');
+  $('sumbody').innerHTML=s.text?md(s.text):'<p class="sm">The lead is writing the summary…</p>';if(open)toggleSum(true)}
+function toggleSum(v){const a=$('app');const on=v===undefined?!a.classList.contains('sum-open'):!!v;a.classList.toggle('sum-open',on&&!!SUM)}
+function copySum(){if(SUM)api().clip_set(SUM.text)}
+
+// ── attachments: saved in the working folder (attachments/); the message lists their paths
+const ATT=[];   // {name, size, state: up|ok|err, path, error}
+const MAXF=25<<20;
+function fmtSize(n){return n<1024?n+' B':n<1048576?Math.round(n/1024)+' KB':(n/1048576).toFixed(1)+' MB'}
+function renderAtt(){$('att').innerHTML=ATT.map((a,i)=>`<span class="achip ${a.state==='err'?'err':''}" title="${esc(a.error||a.path||'Uploading…')}">${a.state==='up'?'<span class="spin"></span>':a.state==='err'?'⚠':'📄'}<span class="n">${esc(a.name)}</span><span class="s">${a.state==='err'?'failed':fmtSize(a.size)}</span><button onclick="ATT.splice(${i},1);renderAtt()" title="Remove from this message">✕</button></span>`).join('')}
+function b64(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]||'');r.onerror=()=>rej(r.error);r.readAsDataURL(file)})}
+async function addFiles(files){for(const f of files){const a={name:f.name,size:f.size,state:'up'};ATT.push(a);renderAtt();
+  if(f.size>MAXF){a.state='err';a.error='Larger than 25 MB';renderAtt();continue}
+  try{const r=await api().upload_file(S.cur.id,f.name,await b64(f));if(r.error){a.state='err';a.error=r.error}else{a.state='ok';a.path=r.path}}
+  catch(e){a.state='err';a.error=String(e.message||e)}
+  renderAtt()}}
+$('file').addEventListener('change',e=>{addFiles([...e.target.files]);e.target.value=''});
+{const m=$('main');
+  m.addEventListener('dragover',e=>{if([...e.dataTransfer.types].includes('Files')){e.preventDefault();m.classList.add('drop')}});
+  m.addEventListener('dragleave',e=>{if(!m.contains(e.relatedTarget))m.classList.remove('drop')});
+  m.addEventListener('drop',e=>{m.classList.remove('drop');if(e.dataTransfer.files.length){e.preventDefault();addFiles([...e.dataTransfer.files])}})}
+$('in').addEventListener('paste',e=>{const fs=[...(e.clipboardData?.files||[])];if(fs.length){e.preventDefault();addFiles(fs)}});
+
 function apv(cid,ok,scope){api().approve(cid,ok,scope||'');const el=document.getElementById('ap-'+cid);if(el){const b=el.querySelector('.apb');if(b)b.outerHTML=`<div class="sm">${ok?'✓ approved — running':'✕ skipped'}</div>`}}
 // composer
 function autosize(){const e=$('in');e.style.height='auto';e.style.height=Math.min(e.scrollHeight,180)+'px'}
@@ -405,7 +482,12 @@ function askBox(title,value,okLabel='OK'){return new Promise(res=>{
   modal(`<h3>${esc(title)}</h3>${value===null?'':`<input class="field" id="ask_v" value="${esc(value)}">`}<div class="row"><button class="btn" id="ask_c">Cancel</button><button class="btn primary" id="ask_o">${okLabel}</button></div>`);
   const v=$('ask_v');if(v){v.focus();v.select();v.onkeydown=e=>{if(e.key==='Enter')$('ask_o').click()}}
   $('ask_c').onclick=()=>{closeModal();res(null)};$('ask_o').onclick=()=>{const r=v?v.value:true;closeModal();res(r)}})}
-async function refreshStatus(){$('stat').textContent='checking…';try{S.status=await api().check_status()}catch(e){}renderSide()}
+async function refreshStatus(manual){if(manual||!Object.keys(S.status.engineers).length){$('stat').textContent='checking…';$('stat')._h=null}
+  try{S.status=await api().check_status()}catch(e){}renderSide()}
+// The web panel calls this after you edit agents there, so the sidebar updates without a reload.
+window.aetherReloadConfig=async()=>{const b=await api().bootstrap();S.cfg=b.config;
+  for(const s of b.sessions){const o=S.sessions.find(x=>x.id===s.id);if(o)o.settings={...o.settings,...s.settings}}   // e.g. agents switched on there
+  renderSide();refreshStatus()};
 setInterval(()=>{if(window.pywebview&&!S.busy)refreshStatus()},45000);
 window.addEventListener('pywebviewready',async()=>{
   const b=await api().bootstrap();S.cfg=b.config;S.defKey=b.default_key;S.sessions=b.sessions;S.memory=b.memory;S.home=b.home;

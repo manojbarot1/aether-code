@@ -165,9 +165,12 @@ def choose_lead(text: str, engineers: list[dict], mode: str) -> tuple[dict, str]
     """Best available engineer for this request. engineers = candidates (already filtered for availability)."""
     want = set(TASK_TYPES[task_type(text)][1])
     pref = {"quick": ("fast", "balanced", "strong"), "standard": ("balanced", "strong", "fast"), "deep": ("strong", "balanced", "fast")}[mode]
+    # Per-engineer "lead" setting: "never" engineers lead only when nobody else can; "prefer" ones get a head start.
+    engineers = [e for e in engineers if e.get("lead") != "never"] or engineers
     best, best_s = engineers[0], -1e9
     for i, e in enumerate(engineers):
         s = 2.0 * len(caps_for(e) & want) - 0.05 * i                     # earlier in the sidebar wins ties
+        s += 6.0 if e.get("lead") == "prefer" else 0
         s += (2 - pref.index(tier(e))) * 0.8                              # model speed/strength fits the job size
         s -= 1.5 * len(_FAILS.get(e["id"], []))                           # recent failures
         if s > best_s:

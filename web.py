@@ -43,12 +43,12 @@ import app  # noqa: E402
 ALLOWED = {
     "add_memory", "approve", "archive_session", "bootstrap", "check_status", "clip_get", "clip_set",
     "delete_engineer", "delete_memory", "delete_session", "delete_ssh", "list_dirs", "list_models",
-    "load_session", "new_session", "pick_dir", "rename_session", "save_engineer", "save_ssh", "send",
-    "set_auto_memory", "ssh_config_hosts", "stop", "test_ssh", "update_settings",
+    "load_session", "make_dir", "new_session", "pick_dir", "rename_session", "save_engineer", "save_ssh", "send",
+    "set_auto_memory", "ssh_config_hosts", "stop", "test_ssh", "update_settings", "upload_file",
 }
 LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 STATIC = {"/ctxmenu.js": HERE / "ctxmenu.js", "/web/bridge.js": HERE / "web" / "bridge.js"}
-MAX_BODY = 2 * 1024 * 1024
+MAX_BODY = 40 * 1024 * 1024   # attachments arrive base64-encoded (25 MB file ≈ 34 MB)
 
 
 def log(msg: str) -> None:
