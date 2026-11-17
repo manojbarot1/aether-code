@@ -1,4 +1,5 @@
-/* Right-click menu + real clipboard for Aether Lite / Code (shared). Uses the Mac pasteboard via the Python API. */
+/* Right-click menu + real clipboard for Aether Lite / Code (shared). Desktop app: the Mac pasteboard via the Python API.
+   Browser mode: the browser's clipboard (web/bridge.js); where the page may not read it, text fields keep the native menu. */
 (function(){
   const api=()=>window.pywebview&&window.pywebview.api;
   const css=document.createElement('style');css.textContent=`
@@ -9,10 +10,16 @@
   document.head.appendChild(css);
   const menu=document.createElement('div');menu.id='aeMenu';menu.hidden=true;document.body.appendChild(menu);
   const hide=()=>{menu.hidden=true};
-  addEventListener('click',hide);addEventListener('blur',hide);addEventListener('scroll',hide,true);addEventListener('keydown',e=>{if(e.key==='Escape')hide()});
+  addEventListener('click',hide);addEventListener('blur',hide);addEventListener('keydown',e=>{if(e.key==='Escape')hide()});
+  // Close on the user's own scrolling only: 'scroll' also fires when the chat auto-scrolls to new output,
+  // which closed the menu the moment it opened while a job was running.
+  addEventListener('wheel',hide,{capture:true,passive:true});addEventListener('touchmove',hide,{capture:true,passive:true});addEventListener('resize',hide);
   const sel=()=>String(window.getSelection&&window.getSelection().toString()||'');
   const toast=m=>{if(window.toast)window.toast(m,1100)};
-  const copy=async t=>{if(t){await api().clip_set(t);toast('Copied')}};
+  const copy=async t=>{if(t){const ok=await api().clip_set(t);toast(ok===false?'Copy blocked by the browser: use Ctrl+C / ⌘C':'Copied')}};
+  // In a browser that cannot read the clipboard (plain http on a LAN address) "Paste" can never work,
+  // so text fields keep the browser's own menu and the paste item is left out.
+  const noPaste=!!(window.aetherBrowser&&!window.aetherBrowser.canReadClipboard);
   function insertAt(el,text){const s=el.selectionStart??el.value.length,e=el.selectionEnd??el.value.length;el.setRangeText(text,s,e,'end');el.dispatchEvent(new Event('input',{bubbles:true}))}
   function build(e){
     const t=e.target,items=[];
@@ -38,11 +45,12 @@
       if(bub&&bub.querySelector('.tool'))items.push(['Copy message with tool calls',true,()=>copy(bub.innerText.trim())]);
       items.push('-',['Select All',true,()=>{const r=document.createRange();r.selectNodeContents(bub||document.getElementById('msgs')||document.body);const g=getSelection();g.removeAllRanges();g.addRange(r)}]);
       const inp=document.getElementById('in');
-      if(inp)items.push(['Paste into message box',true,async()=>{inp.focus();insertAt(inp,await api().clip_get())}]);
+      if(inp&&!noPaste)items.push(['Paste into message box',true,async()=>{inp.focus();insertAt(inp,await api().clip_get())}]);
     }
     return items}
   document.addEventListener('contextmenu',e=>{
     if(e.target.closest&&e.target.closest('#tree,#tabs,.tr'))return;           // the IDE has its own file menu there
+    if(noPaste&&e.target.closest&&e.target.closest('input,textarea,[contenteditable=""],[contenteditable="true"],.monaco-editor,.term'))return;  // browser's own Cut/Copy/Paste
     e.preventDefault();e.stopPropagation();
     const items=build(e);menu.innerHTML=items.map((it,i)=>it==='-'?'<hr>':`<div data-i="${i}" class="${it[1]?'':'off'}">${it[0]}</div>`).join('');
     menu.hidden=false;const w=menu.offsetWidth,h=menu.offsetHeight;menu.style.left=Math.min(e.clientX,innerWidth-w-8)+'px';menu.style.top=Math.min(e.clientY,innerHeight-h-8)+'px';

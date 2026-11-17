@@ -57,6 +57,10 @@
   // the server is this machine.
   const sameMachine = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(location.hostname);
   function copyFallback(text) {
+    const active = document.activeElement;
+    const fieldSel = active && 'selectionStart' in active ? [active.selectionStart, active.selectionEnd] : null;
+    const sel = window.getSelection();
+    const ranges = sel ? Array.from({ length: sel.rangeCount }, (_, i) => sel.getRangeAt(i)) : [];
     const ta = document.createElement('textarea');
     ta.value = text;
     ta.setAttribute('readonly', '');
@@ -66,8 +70,20 @@
     let ok = false;
     try { ok = document.execCommand('copy'); } catch {}
     ta.remove();
+    // put back what the user had selected and focused
+    try {
+      if (active && active.focus) active.focus();
+      if (fieldSel) active.setSelectionRange(fieldSel[0], fieldSel[1]);
+      else if (sel) { sel.removeAllRanges(); ranges.forEach(r => sel.addRange(r)); }
+    } catch {}
     return ok;
   }
+  // Browser mode (not the desktop app). canReadClipboard is false over plain http on a LAN
+  // address: there the page cannot paste, so ctxmenu.js leaves text fields to the browser's
+  // own right-click menu, whose Cut / Copy / Paste always work.
+  window.aetherBrowser = {
+    canReadClipboard: !!(window.isSecureContext && navigator.clipboard && navigator.clipboard.readText),
+  };
   const local = {
     clip_get: async () => {
       try { return await navigator.clipboard.readText(); } catch {}
