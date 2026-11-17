@@ -733,12 +733,23 @@ class Api:
         except Exception as exc:
             return {"path": path, "dirs": [], "parent": None, "error": str(exc)[:200]}
 
+    # Clipboard tools to try after AppKit: macOS, then Wayland and X11 on Linux.
+    CLIP_PASTE = (["pbpaste"], ["wl-paste", "--no-newline"], ["xclip", "-selection", "clipboard", "-o"], ["xsel", "-bo"])
+    CLIP_COPY = (["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "-bi"])
+
     def clip_get(self) -> str:
         try:
             from AppKit import NSPasteboard, NSPasteboardTypeString
             return str(NSPasteboard.generalPasteboard().stringForType_(NSPasteboardTypeString) or "")
         except Exception:
-            return subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
+            pass
+        for argv in self.CLIP_PASTE:
+            if shutil.which(argv[0]):
+                try:
+                    return subprocess.run(argv, capture_output=True, text=True, timeout=5).stdout
+                except Exception:
+                    continue
+        return ""
 
     def clip_set(self, text: str) -> bool:
         try:
@@ -748,8 +759,14 @@ class Api:
             pb.setString_forType_(text, NSPasteboardTypeString)
             return True
         except Exception:
-            subprocess.run(["pbcopy"], input=text, text=True)
-            return True
+            pass
+        for argv in self.CLIP_COPY:
+            if shutil.which(argv[0]):
+                try:
+                    return subprocess.run(argv, input=text, text=True, timeout=5).returncode == 0
+                except Exception:
+                    continue
+        return False
 
     def archive_session(self, sid: str, flag: bool = True) -> bool:
         with db() as c:
@@ -1390,14 +1407,32 @@ class Api:
         ```run block; the user approves, the app runs it where the project lives, and the output goes back. Each block is
         one script, so heredocs survive. API engineers do all their work this way, so they get more rounds than CLIs."""
         text = self._run_once(sid, eng, cfg, st, target, directive, phase)
+        retold, acted, idle_retold = 0, False, False
         for _ in range(12 if eng["provider"] == API else 3):
             brokered = phase != "summary" and (st["mode"] in ("plan", "edit") or (eng["provider"] == API and st["mode"] == "auto"))
             block = aether_block(text) if brokered else {}
             files = [f for f in (block.get("files") or []) if isinstance(f, dict)][:20]
             cmds = (run_blocks(text) + [c.strip() for c in (block.get("commands") or []) if isinstance(c, str) and c.strip()]) \
                 if brokered else []
-            if not (cmds or files) or sid in self.stopped or orch.is_down(eng["id"]):
+            if sid in self.stopped or orch.is_down(eng["id"]):
                 break
+            if not (cmds or files):
+                # A model that writes its own tool-call syntax (<tool_call>, <function=…>) instead of a ```run block
+                # gets nothing run, and used to end the whole job there, silently. Tell it, at most twice.
+                if brokered and retold < 2 and self.FOREIGN_CALL.search(text or ""):
+                    retold += 1
+                    self._post(sid, "system", "Aether", f"{eng['name']} wrote a tool call Aether cannot run — asking for a ```run / ```aether block instead.")
+                    text = self._run_once(sid, eng, cfg, st, target, phase=phase, directive=self.RETELL)
+                    continue
+                # Free models sometimes answer a build with a stray word ("hi") and no action, which also ended the
+                # job with nothing built and no summary. A doing turn that has not run or written anything yet gets one nudge.
+                if brokered and phase in ("build", "work", "fix") and not acted and not idle_retold:
+                    idle_retold = True
+                    self._post(sid, "system", "Aether", f"{eng['name']} replied without running or writing anything — asking it to do the task.")
+                    text = self._run_once(sid, eng, cfg, st, target, phase=phase, directive=self.NOTHING_DONE)
+                    continue
+                break
+            acted = True
             results = [self._write_files(sid, files, st, target)] if files else []
             for cmd in cmds[:4]:
                 blocked = self._kill_guard(cmd, st, target) or next(
@@ -1417,6 +1452,15 @@ class Api:
                 "\n\nContinue your task. If you still need files or commands, output another ```aether / ```run block; "
                 "otherwise finish with your answer."))
         return text
+
+    FOREIGN_CALL = re.compile(r"<tool_call>|<function[=\s>]|<parameter=|<invoke\b|\"tool_calls\"\s*:|<\|tool_call", re.I)
+    RETELL = ("Nothing was run: your last reply used a tool-call format this app ignores (<tool_call>, <function>, "
+              "<parameter>). The ONLY actions are a ```run block (shell commands) and one ```aether block (files). "
+              "Redo that step now with a ```run or ```aether block, or give your final answer if you are done.")
+
+    NOTHING_DONE = ("You have not run or written anything yet, so nothing is built. Do the user's request now: create the "
+                    "files with one ```aether block and/or run commands with ```run blocks, then check the result. "
+                    "If the request truly needs no files or commands, say exactly why in one or two sentences.")
 
     SERVER_CMD = re.compile(r"http\.server|uvicorn|gunicorn|flask|vite|next (?:dev|start)|npm (?:run )?(?:dev|start)|php -S|serve\b|runserver|--port|--listen|PORT=", re.I)
     NOT_SERVER = re.compile(r"^\s*(curl|wget|lsof|ss|netstat|kill|pkill|echo|cat|ls|grep|freeport|sleep)\b")

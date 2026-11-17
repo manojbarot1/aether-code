@@ -51,11 +51,33 @@
     return body.result;
   }
 
-  // The clipboard belongs to the browser's machine, not the server's, so use the browser's
-  // when it allows it (localhost or https) and fall back to the server otherwise.
+  // The clipboard belongs to the browser's machine, not the server's. navigator.clipboard only
+  // exists on https and localhost; over plain http on a LAN address, copy with execCommand,
+  // which still puts the text on THIS device. The server's clipboard is only the right one when
+  // the server is this machine.
+  const sameMachine = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(location.hostname);
+  function copyFallback(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch {}
+    ta.remove();
+    return ok;
+  }
   const local = {
-    clip_get: async () => { try { return await navigator.clipboard.readText(); } catch { return call('clip_get', []); } },
-    clip_set: async text => { try { await navigator.clipboard.writeText(text); return true; } catch { return call('clip_set', [text]); } },
+    clip_get: async () => {
+      try { return await navigator.clipboard.readText(); } catch {}
+      return sameMachine ? call('clip_get', []) : '';
+    },
+    clip_set: async text => {
+      try { await navigator.clipboard.writeText(text); return true; } catch {}
+      if (copyFallback(text)) return true;
+      return sameMachine ? call('clip_set', [text]) : false;
+    },
   };
 
   window.pywebview = {
