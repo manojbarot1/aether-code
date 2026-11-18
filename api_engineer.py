@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import os
 import sys
 import urllib.error
@@ -56,10 +57,39 @@ def ssl_hint(url: str, exc: Exception) -> str:
 MAX_CONTINUE = 3
 
 
-def stream_once(base: str, key: str, model: str, messages: list[dict]) -> tuple[str | None, str]:
-    """One streamed completion, echoed as it arrives. Returns (text, finish_reason); text None after an error event."""
+def splice(before: str, more: str) -> str:
+    """The start of a continuation, cleaned so it joins the text it continues: models asked to go on often re-open the
+    block they were in (a stray "```aether" in the middle of a file) or repeat the last lines they wrote."""
+    inside = before.count("```") % 2 == 1
+    if inside:
+        more = re.sub(r"^\s*```[\w-]*[ \t]*\n(?:\s*\{\s*\n?\s*\"files\"\s*:\s*\[\s*\{[^\n]*\n?)?", "", more, count=1)
+    tail = before[-600:]
+    for n in range(min(len(tail), len(more)), 19, -1):          # longest repeated overlap first
+        if tail.endswith(more[:n]):
+            return more[n:]
+    return more
+
+
+def stream_once(base: str, key: str, model: str, messages: list[dict], before: str = "") -> tuple[str | None, str]:
+    """One streamed completion, echoed as it arrives. Returns (text, finish_reason); text None after an error event.
+    `before`: the text this one continues; its first ~600 characters are held back and cleaned (see splice)."""
     body = {"model": model, "stream": True, "messages": messages}
     text, finish = [], ""
+    held = [] if before else None
+
+    def emit(chunk: str) -> None:
+        nonlocal held
+        if held is not None:
+            held.append(chunk)
+            joined = "".join(held)
+            if len(joined) < 600:
+                return
+            held, chunk = None, splice(before, joined)
+            if not chunk:
+                return
+        text.append(chunk)
+        out({"type": "text", "text": chunk})
+
     with request(base, "/chat/completions", key, body, timeout=300) as r:
         for raw in r:
             line = raw.decode("utf-8", "replace").strip()
@@ -82,9 +112,13 @@ def stream_once(base: str, key: str, model: str, messages: list[dict]) -> tuple[
                 if think:
                     out({"type": "thought", "text": think})
                 if d.get("content"):
-                    text.append(d["content"])
-                    out({"type": "text", "text": d["content"]})
+                    emit(d["content"])
                 finish = ch.get("finish_reason") or finish
+    if held:
+        rest = splice(before, "".join(held))
+        if rest:
+            text.append(rest)
+            out({"type": "text", "text": rest})
     return "".join(text), finish
 
 
@@ -109,7 +143,7 @@ def main() -> int:
         messages = [{"role": "user", "content": prompt}]
         full = ""
         for attempt in range(1 + MAX_CONTINUE):
-            text, finish = stream_once(args.base_url, key, model, messages)
+            text, finish = stream_once(args.base_url, key, model, messages, before=full)
             if text is None:
                 return 1
             full += text

@@ -142,7 +142,35 @@ def check(root: str | Path) -> list[str]:
             if missing:
                 problems.append(f"scripts look up element id(s) {', '.join('#' + m for m in missing[:12])} that {rel(page)} does not have")
     problems += _state_classes(root, js)
+    problems += _bad_assets(root)
     return list(dict.fromkeys(problems))
+
+
+MAGIC = {".jpg": (b"\xff\xd8\xff",), ".jpeg": (b"\xff\xd8\xff",), ".png": (b"\x89PNG",), ".gif": (b"GIF8",),
+         ".webp": (b"RIFF",), ".bmp": (b"BM",), ".ico": (b"\x00\x00\x01\x00",), ".mp3": (b"ID3", b"\xff\xfb", b"\xff\xf3"),
+         ".wav": (b"RIFF",), ".ogg": (b"OggS",), ".woff2": (b"wOF2",), ".woff": (b"wOFF",)}
+
+
+def _bad_assets(root: Path) -> list[str]:
+    """Images, sounds and fonts that are empty or not what their extension says (a model can't download binaries, so it
+    writes an empty file or SVG text called earth.jpg). The browser fails to decode them: a black planet, a missing icon."""
+    out = []
+    for p in _files(root):
+        ext = p.suffix.lower()
+        if ext not in MAGIC:
+            continue
+        head = p.read_bytes()[:64]
+        rel = str(p.relative_to(root))
+        if not head:
+            out.append(f"{rel} is an empty file")
+        elif not head.startswith(MAGIC[ext]) or (ext == ".webp" and b"WEBP" not in head[:16]):
+            kind = "SVG text" if b"<svg" in head.lower() or b"<?xml" in head.lower() else "text" if head.isascii() else "not a real file of that type"
+            out.append(f"{rel} is {kind}, not a real {ext[1:].upper()} image/file")
+    if not out:
+        return []
+    return [f"{len(out)} asset file(s) can't be decoded by the browser: {'; '.join(out[:8])}. Binary files can't be written as text: "
+            "draw textures in code (a <canvas> → THREE.CanvasTexture, CSS gradients), save real SVG as .svg, or load from a "
+            "URL that really exists"]
 
 
 STATE_WORDS = {"active", "open", "opened", "show", "shown", "visible", "is-open", "is-active", "is-visible", "expanded",

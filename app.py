@@ -489,7 +489,72 @@ def aether_block(text: str) -> dict:
             continue
         if isinstance(data, dict):
             return data
-    return {}
+    files = lenient_files(text)
+    return {"files": files, "lenient": True} if files else {}
+
+
+def lenient_files(text: str) -> list[dict]:
+    """Files from an ```aether block whose JSON is broken: `}}}` for `}]}`, JS escapes like \\' , quotes left unescaped
+    in HTML (`<a href="x">`), the closing quote forgotten before the fence. A file is only taken when its content is
+    complete (a reply cut off mid-file gives nothing for that file)."""
+    first = re.search(r"```aether[ \t]*\n", text or "")
+    if not first:
+        return []
+    seg, dec, out = text[first.end():], json.JSONDecoder(strict=False), {}
+    # JS-style escapes (\' \$ \`) are invalid JSON; doubling the backslash keeps the file's text exactly the same
+    fix = lambda t: re.sub(r"\\(.)", lambda e: e.group(0) if e.group(1) in '"\\/bfnrtu' else "\\\\" + e.group(1), t, flags=re.S)
+
+    def whole(s: str):
+        """The string literal at the start of s, if it really ends there (followed by } or ,), else None."""
+        try:
+            val, end = dec.raw_decode(s, 0)
+        except ValueError:
+            return None
+        return val if isinstance(val, str) and re.match(r"\s*[,}]", s[end:]) else None
+
+    for pm in re.finditer(r'"path"\s*:\s*"([^"\n]{1,300})"\s*,\s*"content"\s*:\s*"', seg):
+        q = pm.end() - 1
+        content = whole(seg[q:])
+        if content is None:
+            content = whole(fix(seg[q:]))
+        if content is None:
+            # Unescaped quotes inside: the content runs to this file's closing `"}` before the next file or the fence.
+            rest = seg[q + 1:]
+            ends = [m.start() for m in (re.search(r'"\s*\}\s*,\s*\{\s*"path"', rest),
+                                        re.search(r'"?(?:\s*[}\]])*\s*\n```[ \t]*(?:\n|$)', rest)) if m]
+            if not ends:
+                continue
+            raw = rest[:min(ends)]
+            raw = re.sub(r'(?<!\\)"', '\\"', raw)
+            try:
+                content = json.loads('"' + fix(raw) + '"', strict=False)
+            except ValueError:
+                continue
+        if isinstance(content, str) and content.strip():
+            out[pm.group(1)] = content
+    return [{"path": k, "content": v} for k, v in out.items()]
+
+
+def block_trouble(text: str) -> str:
+    """Why a reply that tried to write files or run commands produced nothing to act on ('' when it didn't try)."""
+    t = text or ""
+    if t.count("```") % 2 == 1:
+        kind = re.findall(r"```(\w*)", t)[-1] or "code"
+        return (f"Your reply was cut off inside a ```{kind} block ({len(t):,} characters) — the provider's length limit — so "
+                "NOTHING was written or run. Send ONE file per reply in an ```aether block, and keep each reply under ~12,000 "
+                "characters (split a big file into modules if needed).")
+    if re.search(r"```aether", t):
+        dec = json.JSONDecoder(strict=False)
+        for m in re.finditer(r"```aether[ \t]*\n", t):
+            start = t.find("{", m.end())
+            try:
+                dec.raw_decode(t, start)
+            except ValueError as exc:
+                near = t[max(start, getattr(exc, "pos", start) - 60):getattr(exc, "pos", start) + 20].replace("\n", "⏎")
+                return (f"Your ```aether block is not valid JSON ({exc.msg} near: …{near}…), so NOTHING was written. Resend "
+                        'it exactly as {"files": [{"path": "…", "content": "…"}]} — escape quotes and newlines in content, '
+                        "close with `\"}]}` then the ``` fence. One file per reply is safest.")
+    return ""
 
 
 # ───────────────────────────── API exposed to the UI ─────────────────────────────
@@ -1281,7 +1346,13 @@ class Api:
                     "same person — above all, the page markup (HTML) and the script that drives it (ids, classes, events) belong "
                     "to ONE person, because mismatches between them are the most common bug. "
                     "Do NOT write any project files yourself now; you verify everything afterwards.\n"
-                    "## Acceptance checks\nThe exact commands that prove it works (tests, syntax checks, starting it, the URL to load).")
+                    "## Acceptance checks\nThe exact commands that prove it works (tests, syntax checks, starting it, the URL to load), "
+                    "as a plain list — NOT in ```run blocks: Aether runs them when the work is verified, and nothing exists yet.\n"
+                    "Libraries: pin ONE recent version for a library and all its add-ons (e.g. three@0.160.0 with an importmap "
+                    "mapping `three` and `three/addons/` to that same version) — mixed versions load the library twice.\n"
+                    "Assets: nobody on the team can download or write binary files (JPG/PNG/MP3). Plan images and textures as drawn "
+                    "in code (<canvas> → THREE.CanvasTexture, CSS gradients, procedural noise) or as real .svg files — never as "
+                    ".jpg/.png files the team would have to fake.")
         t_plan = time.time()
 
         def assigned(text: str) -> dict:
@@ -1331,6 +1402,10 @@ class Api:
             self._plan[sid] = plan
             names = {m["id"]: m["name"] for m in members}
             self._owners[sid] = self._parse_owners({names[i]: t for i, t in tasks.items() if i in names})
+            orphans = self._adopt_orphans(sid, plan)
+            if orphans:
+                self._post(sid, "system", "Team", "Files in the Architecture that no task owned, now assigned: " +
+                           ", ".join(f"{f} → {o}" for f, o in orphans.items()), {"phase": "plan"})
             self._save_plan(sid, plan, st, target)
         if (self._outcome.get((sid, lead["id"])) or {}).get("failed") and not tasks:
             return                                   # nobody could lead; the reason is already posted
@@ -1418,6 +1493,59 @@ class Api:
         root = Path(os.path.expanduser(eff_cwd(st, target))).resolve()
         return sorted(p_ for p_, o in (self._owners.get(sid) or {}).items()
                       if (name is None or o == name) and not p_.endswith("/") and p_ != self.E2E and not (root / p_).is_file())
+
+    CODE_EXT = r"(?:html?|css|scss|m?js|jsx|tsx?|py|vue|svelte)"
+
+    @classmethod
+    def _arch_files(cls, plan: str) -> list[str]:
+        """Source files the plan's Architecture section names: `a/b.js` paths, and names in a file tree (├── js/ … main.js)."""
+        m = re.search(r"(?ims)^\s*#+\s*Architecture\b(.*?)(?=^\s*#+\s*Tasks\b|\Z)", plan or "")
+        if not m:
+            return []
+        out: list[str] = []
+        stack: list[tuple[int, str]] = []          # (depth, dir) for the tree being read
+        for line in m.group(1).splitlines():
+            tree = re.match(r"^([\s│|]*)(?:[├└]──|[|`]--|[-*]\s)?\s*([\w.@-]+/?)\s*(?:#.*)?$", line.split("  #")[0].rstrip())
+            if tree and ("──" in line or "--" in line or re.match(r"^\s+[\w.@-]+/?\s*$", line.split("  #")[0])):
+                depth = len(tree.group(1).replace("│", " ").replace("|", " "))
+                name = tree.group(2)
+                while stack and stack[-1][0] >= depth:
+                    stack.pop()
+                if name.endswith("/"):
+                    if depth > 0 or "──" in line:
+                        stack.append((depth, name))
+                    continue
+                if re.fullmatch(rf"[\w.@-]+\.{cls.CODE_EXT}", name):
+                    out.append(os.path.normpath("".join(d for _, d in stack) + name))
+                continue
+            for f in re.findall(rf"(?<![\w/.:-])((?:[\w@-]+/)+[\w.@-]+\.{cls.CODE_EXT})\b", line):
+                if not f.startswith(("http", "node_modules/", "three/", "examples/", "build/")):
+                    out.append(os.path.normpath(f))
+        return [f for f in dict.fromkeys(out) if not f.startswith(("assets/", "tests/", "test/", ".aether/"))]
+
+    def _adopt_orphans(self, sid: str, plan: str) -> dict[str, str]:
+        """A file the Architecture needs but no task owns is never written (an entry js/main.js, say), and the team only
+        finds out at verification. Give each one to the teammate with related work: the page owner gets entry points,
+        otherwise the owner of a file in the same folder."""
+        own = self._owners.get(sid)
+        if not own:
+            return {}
+        given: dict[str, str] = {}
+        page = next((o for f, o in own.items() if f.endswith((".html", ".htm"))), None)
+        load = lambda n: sum(1 for o in own.values() if o == n)
+        for f in self._arch_files(plan):
+            if f in own or self._owner_of(sid, f):
+                continue
+            same_dir = [o for g, o in own.items() if os.path.dirname(g) == os.path.dirname(f) and not g.endswith("/")]
+            base = os.path.basename(f).split(".")[0].lower()
+            if page and (base in ("main", "app", "index", "entry", "bootstrap", "init") or not same_dir):
+                who = page
+            elif same_dir:
+                who = min(dict.fromkeys(same_dir), key=load)
+            else:
+                who = min(dict.fromkeys(own.values()), key=load)
+            own[f] = given[f] = who
+        return given
 
     def _owner_of(self, sid: str, path: str) -> str | None:
         own = self._owners.get(sid) or {}
@@ -2007,7 +2135,7 @@ class Api:
         ```run block; the user approves, the app runs it where the project lives, and the output goes back. Each block is
         one script, so heredocs survive. API engineers do all their work this way, so they get more rounds than CLIs."""
         text = self._run_once(sid, eng, cfg, st, target, directive, phase)
-        retold, acted, idle_retold = 0, False, False
+        retold, acted, idle_retold, broke = 0, False, False, 0
         for _ in range({"plan": 3, "fix": 6}.get(phase, 12) if eng["provider"] == API else 3):
             brokered = phase != "summary" and (st["mode"] in ("plan", "edit") or (eng["provider"] == API and st["mode"] == "auto"))
             block = aether_block(text) if brokered else {}
@@ -2016,6 +2144,8 @@ class Api:
                 if brokered else []
             if sid in self.stopped or orch.is_down(eng["id"]):
                 break
+            if phase == "plan" and self.PLAN_DONE.search(text or ""):
+                break      # the plan is written. Its acceptance checks run at verification; another round only tempts the lead to build alone
             if not (cmds or files):
                 # A model that writes its own tool-call syntax (<tool_call>, <function=…>) instead of a ```run block
                 # gets nothing run, and used to end the whole job there, silently. Tell it, at most twice.
@@ -2026,6 +2156,12 @@ class Api:
                     continue
                 # Free models sometimes answer a build with a stray word ("hi") and no action, which also ended the
                 # job with nothing built and no summary. A doing turn that has not run or written anything yet gets one nudge.
+                trouble = block_trouble(text) if brokered else ""
+                if trouble and broke < 3:
+                    broke += 1
+                    self._post(sid, "system", "Aether", f"{eng['name']}: " + trouble.split(" — ")[0].split(", so")[0] + " — asking again.")
+                    text = self._run_once(sid, eng, cfg, st, target, phase=phase, directive=trouble)
+                    continue
                 if brokered and phase in ("build", "work", "fix", "test") and not acted and not idle_retold:
                     idle_retold = True
                     self._post(sid, "system", "Aether", f"{eng['name']} replied without running or writing anything — asking it to do the task.")
@@ -2046,6 +2182,10 @@ class Api:
                 cmds = ro
             if files:
                 results.append(self._write_files(sid, files, st, target, by=eng["name"], phase=phase))
+                if block.get("lenient") or (text or "").count("```") % 2 == 1:
+                    results.append("⚠ Your ```aether block was " + ("cut off" if (text or "").count("```") % 2 == 1 else "not valid JSON")
+                                   + f"; Aether recovered only: {', '.join(f.get('path', '?') for f in files)}. Anything else "
+                                   "in it was NOT written — send it again, one file per reply.")
             if len(cmds) > 4:
                 results.append(f"[not run: {len(cmds) - 4} more ```run blocks — only 4 run per reply. Send the rest in your next reply.]")
             for cmd in cmds[:4]:
@@ -2071,6 +2211,7 @@ class Api:
                 "otherwise finish with your answer."))
         return text
 
+    PLAN_DONE = re.compile(r"(?mi)^\s*#+\s*Tasks\b[\s\S]*?^\s*@[\w .-]+?\s*[:\-–].*\|\s*files?\s*:")
     READ_ONLY = re.compile(r"^\s*(ls|cat|head|tail|grep|rg|find|wc|tree|pwd|file|stat|du|echo|sed\s+-n|git\s+(?:status|log|diff|show|branch)|node\s+--version|python3?\s+--version|which)\b")
     WRITES = re.compile(r"(?<![0-9&])>(?!\s*/dev/null)|\b(rm|mv|cp|tee|chmod|mkdir|touch|npm|npx|pip|kill|curl\s.*-o)\b|-exec|-delete|sed\s+-i")
 
