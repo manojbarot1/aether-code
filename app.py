@@ -601,6 +601,7 @@ class Api:
         self._auto_url: dict[str, str] = {}                # session → URL Aether served the project at for checks
         self._final: dict[str, dict] = {}                  # session → how the last verification ended
         self._auto_cmds: dict[str, list[str]] = {}         # session → commands the automatic checks run
+        self._notes: dict[str, list[str]] = {}             # session → messages the user sent while the job ran
 
     # ── ui plumbing
     def emit(self, ev: dict) -> None:
@@ -1000,10 +1001,74 @@ class Api:
         return self.list_memory()
 
     # ── chat
+    STATUS_Q = re.compile(r"\b(status|progress|update|how('?s| is| are)? (it|things|we|you|the \w+) ?(going|doing)?|where are (we|you)|"
+                          r"what('?s| is) (happening|going on)|eta|done yet|ready yet|finished yet|still working|any news)\b|^\s*\?+\s*$", re.I)
+
+    def _mid_job(self, sid: str, text: str) -> dict:
+        """A message sent while a job runs (like Claude Desktop): it shows at once as "queued", never stops the job, and
+        reaches the agents at their next step. The first agent to see it answers it briefly, then carries on; every agent
+        keeps it as an instruction. If the job ends before anyone saw it, it runs as the next request."""
+        now = time.time()
+        msg = {"id": uid(), "ts": now, "role": "user", "author": "You", "content": text, "meta": {"during_job": True, "queued": True}}
+        with db() as c:
+            c.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?)", (msg["id"], sid, now, "user", "You", text, json.dumps(msg["meta"])))
+        self._notes.setdefault(sid, []).append({"id": msg["id"], "text": text, "seen": [], "answered": False})
+        return msg
+
+    def _deliver_notes(self, sid: str, eng: dict, phase: str) -> str:
+        """Prompt text for the user's mid-job messages, and mark them seen by `eng` (the chat shows who saw them)."""
+        notes = self._notes.get(sid) or []
+        if not notes:
+            return ""
+        out, reply = [], []
+        for n in notes:
+            if eng["name"] not in n["seen"]:
+                n["seen"].append(eng["name"])
+                self._mark_note(sid, n)
+            if not n["answered"] and phase not in ("summary", "plan"):
+                n["answered"] = True
+                reply.append(n)
+        out.append("MESSAGES THE USER SENT WHILE THE TEAM WAS WORKING (newest last) — they take priority; follow them:\n" +
+                   "\n".join(f"- {n['text'][:2000]}" for n in notes[-10:]))
+        if reply:
+            try:
+                import job_status as js
+                st = js.status_text(self.job_status(sid))
+            except Exception:
+                st = ""
+            asks = "\n".join(f"- {n['text'][:600]}" for n in reply)
+            out.append(f"The user is waiting for an answer to:\n{asks}\nSTART your reply with a short answer to that "
+                       "(2-5 lines; for a progress question use the job status below and what you are doing yourself), then a line "
+                       "with only `---`, then continue your own task as before.\n" + (f"Job status right now:\n{st}" if st else ""))
+        return "\n\n".join(out)
+
+    def _mark_note(self, sid: str, n: dict) -> None:
+        meta = {"during_job": True, "queued": False, "seen_by": n["seen"]}
+        with db() as c:
+            c.execute("UPDATE messages SET meta=? WHERE id=?", (json.dumps(meta), n["id"]))
+        self.emit({"t": "seen", "sid": sid, "mid": n["id"], "by": n["seen"]})
+
+    def _run_queued(self, sid: str) -> None:
+        """After a job: messages no agent got to see run as the next request (one turn, in order)."""
+        left = [n for n in self._notes.get(sid) or [] if not n["seen"]]
+        if not left or sid in self.stopped:
+            return
+        text = "\n\n".join(n["text"] for n in left)
+        now = time.time()
+        with db() as c:   # they become ordinary messages, placed where they are now handled
+            for n in left:
+                c.execute("UPDATE messages SET ts=?, meta=? WHERE id=?", (now, json.dumps({"queued_turn": True}), n["id"]))
+                self.emit({"t": "promoted", "sid": sid, "mid": n["id"]})
+        self.procs[sid] = []
+        self.stopped.discard(sid)
+        threading.Thread(target=self._turn, args=(sid, text), daemon=True).start()
+
     def send(self, sid: str, text: str) -> dict | None:
         text = text.strip()
-        if not text or sid in self.procs:
+        if not text:
             return None
+        if sid in self.procs:
+            return self._mid_job(sid, text)
         now = time.time()
         msg = {"id": uid(), "ts": now, "role": "user", "author": "You", "content": text, "meta": {}}
         with db() as c:
@@ -1059,6 +1124,7 @@ class Api:
             self._owners.pop(sid, None)
             self._auto_url.pop(sid, None)
             self._final.pop(sid, None)
+            self._notes.pop(sid, None)   # (queued ones were turned into this request by _run_queued)
             order = list(dict.fromkeys(mentioned)) or [i for i in st["active"] if i in engs]
             if not order:
                 self._post(sid, "system", "Aether", "No engineer selected. Pick one in the sidebar or use @name.")
@@ -1104,6 +1170,10 @@ class Api:
         finally:
             self.procs.pop(sid, None)
             self.emit({"t": "idle", "sid": sid})
+            try:
+                self._run_queued(sid)
+            except Exception:
+                pass
 
     def _project_dir(self, sid: str, text: str, st: dict, target: dict | None) -> dict:
         """Build requests must not write into the home folder or Aether's own source: start a fresh project folder."""
@@ -1904,6 +1974,9 @@ class Api:
         req = self._request.get(sid, "")
         if req:
             out.append(f"THE USER'S REQUEST (the whole job; every requirement counts):\n{req[:12000]}")
+        notes = self._deliver_notes(sid, eng, phase)
+        if notes:
+            out.append(notes)
         plan = self._plan.get(sid)
         if plan and phase != "plan":
             out.append(f"THE TEAM PLAN (the contract everyone builds to):\n{plan[:9000]}")

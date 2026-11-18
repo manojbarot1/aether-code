@@ -56,14 +56,14 @@ def _checks(text: str) -> list[dict]:
 
 
 def status(rows: list[dict], live: dict) -> dict:
-    users = [i for i, m in enumerate(rows) if m["role"] == "user"]
+    users = [i for i, m in enumerate(rows) if m["role"] == "user" and not (m.get("meta") or {}).get("during_job")]
     if not users:
         return {"empty": True}
     turn = rows[users[-1]:]
     t0 = turn[0]["ts"]
     request = turn[0]["content"]
     sysm = [m for m in turn if m["role"] == "system"]
-    asst = [m for m in turn if m["role"] == "assistant"]
+    asst = [m for m in turn if m["role"] == "assistant" and (m.get("meta") or {}).get("phase") != "status"]
     shell = [m for m in turn if m["role"] == "shell"]
     running = bool(live.get("running"))
 
@@ -198,6 +198,8 @@ def status(rows: list[dict], live: dict) -> dict:
                      "warn" if re.search(r"unavailable|Reassigned|not written|without running|tool call|FAIL|Blocked|Still failing|treating it as FAIL", c)
                      else "ok" if "PASSED" in c else "info")
             timeline.append({"t": round(m["ts"] - t0), "kind": kind_, "text": _short(c, 160)})
+        elif m["role"] == "user":
+            timeline.append({"t": round(m["ts"] - t0), "kind": "info", "text": "You: " + _short(c, 140)})
         elif m["author"] == "Aether checks":
             cs = _checks(c)
             bad = [x["name"] for x in cs if not x["ok"]]
@@ -251,3 +253,39 @@ def status(rows: list[dict], live: dict) -> dict:
             "running": running, "steps": steps, "started": t0, "updated": turn[-1]["ts"], "elapsed": round(dur),
             "requirements": reqs, "tasks": tasks, "team": team, "checks": checks, "check_history": history,
             "timeline": timeline, "final": final, "advice": advice[:6]}
+
+
+def status_text(d: dict) -> str:
+    """A short markdown status for the chat (answer to "status?" during a job)."""
+    if not d or d.get("empty"):
+        return "No job has started in this session yet."
+    if d.get("error"):
+        return "Status unavailable: " + d["error"]
+    import time as _t
+    el = (_t.time() - d["started"]) if d["running"] else d["elapsed"]
+    el = int(el)
+    dur = f"{el // 60}m {el % 60:02d}s" if el >= 60 else f"{el}s"
+    cur = next((s_["label"] for s_ in d["steps"] if s_["state"] == "now"), d.get("phase") or "—")
+    out = [f"**Status · {dur}** — " + (f"running, now in **{cur}**" if d["running"] else d["state"])]
+    if d["tasks"]:
+        by = lambda st: [t for t in d["tasks"] if t["state"] == st]
+        w, dn, miss = by("working"), by("done"), by("incomplete")
+        line = f"- Tasks: **{len(dn)}/{len(d['tasks'])} done**"
+        if w:
+            line += " · in progress: " + "; ".join(f"{t['owner']} ({t['text'][:60]})" for t in w)
+        if miss:
+            line += " · files missing: " + ", ".join(t["owner"] for t in miss)
+        out.append(line)
+    wk = [p for p in d["team"] if p["now"] == "working"]
+    if wk:
+        out.append("- Working now: " + ", ".join(p["name"] + (f" ({p['roles'][-1]})" if p["roles"] else "") for p in wk))
+    un = [p for p in d["team"] if p["now"] == "unavailable"]
+    if un:
+        out.append("- Unavailable: " + ", ".join(p["name"] for p in un))
+    if d["checks"]:
+        out.append("- Latest checks: " + " · ".join(("✅ " if c["ok"] else "❌ ") + c["name"] for c in d["checks"]))
+        out += [f"  - {c['name']}: {c['detail'] or 'failed'}" for c in d["checks"] if not c["ok"]]
+    if d.get("final"):
+        out.append("- " + d["final"])
+    out += ["", "Full details: the 📊 Project panel on the right."]
+    return "\n".join(out)

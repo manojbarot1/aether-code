@@ -164,6 +164,7 @@ select.field option{color:#111}
 #main.drop{box-shadow:inset 0 0 0 2px var(--accent),var(--glass-shadow)}
 #cwd{max-width:240px;justify-content:flex-start;overflow:hidden;text-overflow:ellipsis}
 html.web .desk-only{display:none}
+.m.user .qtag{font-size:11px;color:var(--text-3);text-align:right;margin-top:3px;padding-right:4px}.m.user .qtag.ok{color:var(--ok)}
 /* Project panel: Status tab */
 #sum .hd .segmented{flex:none}#sum .hd .sp{flex:1}
 #pstatus{flex:1;overflow:auto;padding:10px 14px 16px;font-size:12.5px;user-select:text;-webkit-user-select:text}
@@ -260,6 +261,7 @@ body.resizing{cursor:col-resize;user-select:none;-webkit-user-select:none}
       <button class="btn icon" id="attbtn" onclick="$('file').click()" title="Attach files — they are saved in the working folder (you can also drop or paste them)">📎</button>
       <input type="file" id="file" multiple hidden>
       <textarea id="in" rows="1" placeholder="Message the team…  @name to target · !cmd to run a shell command · /remember …"></textarea>
+      <button id="stopbtn" class="btn danger" hidden onclick="stopJob()" title="Stop the running job (asks first)">■ Stop</button>
       <button id="go" class="btn primary" onclick="send()">Send</button>
     </div>
   </section>
@@ -305,13 +307,16 @@ function md(src){
 function avatar(name){const e=engByName(name);return e?`<div class="av" style="background:${e.color}">${esc(e.avatar||'●')}</div>`:`<div class="av" style="background:#64748b">›</div>`}
 function toolHtml(t){return `<div class="tool" id="t-${esc(t.id)}"><div onclick="this.parentNode.classList.toggle('open')"><span class="st-${t.state}">${t.state==='running'?'◔':t.state==='done'?'✓':'✕'}</span><span class="nm">${esc(t.name)}</span><span class="cmd">${esc(t.command)}</span></div><pre>${esc(t.output||'')}</pre></div>`}
 function msgHtml(m){
-  if(m.role==='user')return `<div class="m user" data-id="${m.id}"><div class="bub">${esc(m.content).replace(/\n/g,'<br>')}</div></div>`;
+  if(m.role==='user')return `<div class="m user" data-id="${m.id}"><div class="bub">${esc(m.content).replace(/\n/g,'<br>')}</div>${qTag(m.meta||{})}</div>`;
   if(m.role==='system')return m.author==='Team'?`<div class="phase" data-id="${m.id}">${esc(m.content)}</div>`:`<div class="m" data-id="${m.id}"><div class="bub sm">${esc(m.content)}</div></div>`;
   if(m.role==='shell'||m.meta?.shell)return `<div class="m" data-id="${m.id}">${avatar('')}<div class="bub shell"><div class="who">Shell</div><pre><code>${esc(m.content)}</code></pre></div></div>`;
   const act=activityHtml(m.meta||{});
   const vd=(m.content||'').match(/VERDICT:\s*(PASS|FAIL|UNVERIFIED)/);const vb=vd?`<span class="badge ${vd[1]==='PASS'?'ok':vd[1]==='FAIL'?'err':'warn'}">${vd[1]==='PASS'?'✓ verified':vd[1]==='FAIL'?'✕ failed':'unverified'}</span>`:'';
   return `<div class="m" data-id="${m.id}">${avatar(m.author)}<div class="bub"><div class="who">${esc(m.author)}${m.meta?.phase?`<span class="badge accent">${m.meta.phase}</span>`:''}${vb}</div>${act}<div class="body">${md(m.content)}</div></div></div>`;
 }
+// A message sent while the team works (like Claude Desktop / Codex): queued, then seen by the agents at their next step.
+function qTag(meta){if(meta.queued_turn)return'<div class="qtag">▶ ran as the next request</div>';if(!meta.during_job)return'';
+  return meta.queued?'<div class="qtag">⏳ queued — the team sees it at its next step</div>':`<div class="qtag ok">✓ seen by ${esc((meta.seen_by||[]).join(', '))}</div>`}
 function activityHtml(meta,live){const tools=meta.tools||[];const th=(meta.thoughts||'').trim();if(!tools.length&&!th&&!live)return'';
   const n=tools.length+(th?1:0);
   return `<div class="actv"><div class="sum">${live?'<span class="spin"></span>':`<span class="${meta.error&&meta.error!=='Stopped'?'bad':'ok'}">${meta.error&&meta.error!=='Stopped'?'✕':'✓'}</span>`}<span class="now">${live?'Starting…':`${n} step${n===1?'':'s'}${meta.dur?` · ${meta.dur}s`:''}`}</span><span class="el"></span></div><div class="steps">${th?`<div class="step th"><b>Thinking</b>${esc(th)}</div>`:''}${tools.map(toolHtml).join('')}</div></div>`}
@@ -418,17 +423,43 @@ function toggleEng(id){const a=S.cur.settings.active;const i=a.indexOf(id);i<0?a
 // ── chat
 const live={};
 async function send(){
-  if(S.busy){await api().stop(S.cur.id);return}
+  if(S.busy){const t=$('in').value.trim();if(!t)return;$('in').value='';autosize();
+    const m=await api().send(S.cur.id,t).catch(()=>null);   // a newer engine stores it, answers, and hands notes to the team
+    if(m){if($('msgs').querySelector('.empty'))$('msgs').innerHTML='';$('msgs').insertAdjacentHTML('beforeend',msgHtml(m));scroll(true);return}
+    // this engine can't take messages mid-job: answer from the live status here
+    $('msgs').insertAdjacentHTML('beforeend',msgHtml({id:'local-'+Date.now(),role:'user',content:t}));
+    await loadStatus();
+    localBubble('Aether',statusText(PST,t)+(STATUS_Q.test(t)?'':'\n\n_Notes for the team can\'t be passed in while a job runs on this version of the chat. To change course now, press ■ Stop and send your instructions._'),'status');
+    return}
   if(ATT.some(a=>a.state==='up')){$('chips').textContent='Waiting for the files to finish uploading…';return}
   const ready=ATT.filter(a=>a.state==='ok');let t=$('in').value.trim();if(!t&&!ready.length)return;
   if(ready.length)t=(t||'Please look at the attached files.')+'\n\nAttached files:\n'+ready.map(a=>`- ${a.path} (${fmtSize(a.size)})`).join('\n');
   $('in').value='';autosize();ATT.length=0;renderAtt();
-  const m=await api().send(S.cur.id,t);if(!m)return;
+  const m=await api().send(S.cur.id,t);
+  if(!m){$('in').value=t;setBusy(true);return send()}   // a job is already running (e.g. after a page reload): ask about it instead
   if($('msgs').querySelector('.empty'))$('msgs').innerHTML='';
   $('msgs').insertAdjacentHTML('beforeend',msgHtml(m));scroll(true);setBusy(true);
   if(S.cur.title==='New session'){S.cur.title=t.slice(0,48);renderSide()}
 }
-function setBusy(b){S.busy=b;$('go').textContent=b?'Stop':'Send';$('go').classList.toggle('danger',b)}
+// While a job runs, Send/Enter ASK about it (status) or pass a note — they never stop it. Stopping is the ■ Stop button.
+function setBusy(b){S.busy=b;$('stopbtn').hidden=!b;$('go').textContent=b?'Ask':'Send';
+  $('go').title=b?'Ask how the job is going (e.g. "status?") or give the team a note — this does not stop the job':'Send';
+  $('in').placeholder=b?'Job running — ask "status?" or add a note for the team…  (■ Stop ends the job)':'Message the team…  @name to target · !cmd to run a shell command · /remember …'}
+async function stopJob(){if(!S.busy)return;if(await askBox('Stop the running job? The team stops now; files written so far are kept.',null,'Stop job')===null)return;await api().stop(S.cur.id)}
+const STATUS_Q=/\b(status|progress|update|how('?s| is| are)? (it|things|we|you|the \w+) ?(going|doing)?|where are (we|you)|what('?s| is) (happening|going on)|eta|done yet|ready yet|finished yet|still working|any news)\b|^\s*\?+\s*$/i;
+function statusText(d,q){if(!d||d.empty)return'No job has started in this session yet.';if(d.error)return'Status unavailable: '+d.error;
+  const el=d.running?Date.now()/1000-d.started:d.elapsed,cur=(d.steps.find(s=>s.state==='now')||{}).label||d.phase||'—';
+  const lines=[`**Status · ${fmtDur(el)}** — ${d.running?'running, now in **'+cur+'**':d.state}`];
+  if(d.tasks.length){const by=s=>d.tasks.filter(t=>t.state===s);const w=by('working'),dn=by('done'),miss=by('incomplete');
+    lines.push(`- Tasks: **${dn.length}/${d.tasks.length} done**`+(w.length?` · in progress: ${w.map(t=>t.owner+' ('+t.text.slice(0,60)+')').join('; ')}`:'')+(miss.length?` · files missing: ${miss.map(t=>t.owner).join(', ')}`:''))}
+  const wk=d.team.filter(p=>p.now==='working');if(wk.length)lines.push(`- Working now: ${wk.map(p=>p.name+(p.roles.length?' ('+p.roles[p.roles.length-1]+')':'')).join(', ')}`);
+  const un=d.team.filter(p=>p.now==='unavailable');if(un.length)lines.push(`- Unavailable: ${un.map(p=>p.name).join(', ')}`);
+  if(d.checks.length)lines.push(`- Latest checks: ${d.checks.map(c=>(c.ok?'✅ ':'❌ ')+c.name).join(' · ')}`+(d.checks.some(c=>!c.ok)?`\n  - ${d.checks.filter(c=>!c.ok).map(c=>c.name+': '+(c.detail||'failed')).join('\n  - ')}`:''));
+  if(d.requirements.length&&!d.running){const ok=d.requirements.filter(r=>r.state==='ok').length;lines.push(`- Requirements: ${ok}/${d.requirements.length} confirmed`)}
+  if(d.final)lines.push(`- ${d.final}`);
+  lines.push('','Full details: the 📊 Project panel on the right.');return lines.join('\n')}
+function localBubble(author,text,badge){if($('msgs').querySelector('.empty'))$('msgs').innerHTML='';
+  $('msgs').insertAdjacentHTML('beforeend',`<div class="m">${avatar(author)}<div class="bub"><div class="who">${esc(author)}${badge?`<span class="badge">${badge}</span>`:''}</div><div class="body">${md(text)}</div></div></div>`);scroll(true)}
 window.onEvent=ev=>{
   if(ev.sid&&ev.sid!==S.cur?.id){if(ev.t==='idle')setBusy(false);return}
   const box=ev.mid&&live[ev.mid];
@@ -456,6 +487,8 @@ window.onEvent=ev=>{
     $('msgs').insertAdjacentHTML('beforeend',`<div class="m" id="ap-${ev.cid}">${avatar(ev.who)}<div class="bub"><div class="who">${esc(ev.who)} wants to run a command <span class="badge accent">${esc(ev.where)}</span></div><pre><code>$ ${esc(ev.cmd)}</code></pre><div class="sm">in ${esc(ev.cwd)}</div><div class="apb" style="display:flex;gap:8px;margin-top:8px"><button class="btn sm primary" onclick="apv('${ev.cid}',true)">Run</button><button class="btn sm" onclick="apv('${ev.cid}',false)">Skip</button>${ev.risky?'<span class="sm" style="align-self:center">⚠ risky — always asks</span>':`<button class="btn sm ghost" onclick="apv('${ev.cid}',true,'session')" title="Run it, and run every non-risky command this session without asking">Allow all this session</button>`}</div></div></div>`);scroll()}
   else if(ev.t==='message'){if(ev.message.author==='Team'&&ev.message.role==='system'){PH=ev.message.content.split(' · ')[0];
       if(/^(Plan|Quick)$/.test(PH)&&!projOpen()){toggleSum(true);pTab('status')}else if(projOpen()&&PT==='status')loadStatus()}if($('msgs').querySelector('.empty'))$('msgs').innerHTML='';$('msgs').insertAdjacentHTML('beforeend',msgHtml(ev.message));scroll()}
+  else if(ev.t==='seen'){const el=$('msgs').querySelector(`.m.user[data-id="${ev.mid}"]`);if(el){const q=el.querySelector('.qtag');const h=qTag({during_job:true,seen_by:ev.by});if(q)q.outerHTML=h;else el.insertAdjacentHTML('beforeend',h)}}
+  else if(ev.t==='promoted'){const el=$('msgs').querySelector(`.m.user[data-id="${ev.mid}"]`);if(el){el.querySelector('.qtag')?.remove();el.insertAdjacentHTML('beforeend',qTag({queued_turn:true}));$('msgs').appendChild(el);scroll(true)}setBusy(true)}
   else if(ev.t==='memory'){S.memory=ev.memory;if(ev.learned){const c=$('chips');const o=c.textContent;c.textContent='🧠 Memory updated';setTimeout(renderSide,2500)}}
   else if(ev.t==='idle'){PH='';renderProgress();setTimeout(loadStatus,300);$('jump')&&($('jump').hidden=true);setBusy(false);S.sessions.sort((a,b)=>0)}
 };
@@ -475,7 +508,7 @@ function pTab(t){PT=t==='sum'&&!SUM?'status':t;$('pstatus').hidden=PT!=='status'
 let PT='status',PST=null,PSTSID=null;
 async function loadStatus(){const sid=S.cur?.id;if(!sid)return;
   try{PST=await api().job_status(sid)}catch(e){PST={error:String(e)}}
-  PSTSID=sid;projBtn();if(projOpen()&&PT==='status')renderStatus();else renderBoard()}
+  PSTSID=sid;projBtn();if(PST&&!PST.empty&&!PST.error&&sid===S.cur?.id&&PST.running!==S.busy)setBusy(!!PST.running);if(projOpen()&&PT==='status')renderStatus();else renderBoard()}
 setInterval(()=>{const bo=$('kbBoard');if(S.busy&&((projOpen()&&PT==='status')||(bo&&bo.classList.contains('show'))))loadStatus()},3000);
 const fmtDur=s=>{s=Math.max(0,Math.round(s));return s<60?s+'s':s<3600?Math.floor(s/60)+'m '+String(s%60).padStart(2,'0')+'s':Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m'};
 function usePrompt(i){const a=PST&&PST.advice[i];if(!a||!a.prompt)return;const el=$('in');el.value=a.prompt;el.focus();el.dispatchEvent(new Event('input',{bubbles:true}))}
