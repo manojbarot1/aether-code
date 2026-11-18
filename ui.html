@@ -110,6 +110,14 @@ select.field option{color:#111}
 .bub code{font:12.5px var(--mono);background:var(--code-bg);padding:1px 5px;border-radius:6px}
 .bub pre{background:var(--code-bg);box-shadow:inset 0 0 0 .5px var(--glass-line);border-radius:var(--r-sm);padding:10px 12px;overflow:auto;margin:.5em 0}.bub pre code{background:none;padding:0}
 .bub a{color:var(--accent)}.shell pre{white-space:pre-wrap;margin:0}
+/* files an agent writes (```aether blocks) and commands it runs, shown as cards instead of raw JSON */
+.fcard{margin:.5em 0;border-radius:var(--r-sm);box-shadow:inset 0 0 0 .5px var(--glass-line);background:var(--code-bg);overflow:hidden}
+.fcard>summary{cursor:pointer;list-style:none;display:flex;gap:8px;align-items:center;padding:7px 12px;font-size:12.5px;user-select:none}
+.fcard>summary::-webkit-details-marker{display:none}.fcard>summary::before{content:'▸';opacity:.6;transition:transform .15s}
+.fcard[open]>summary::before{transform:rotate(90deg)}
+.fcard .fp{font:12.5px var(--mono);font-weight:600}.fcard .fm{opacity:.65;font-size:11.5px}.fcard .fw{color:var(--warn,#d97706);font-size:11.5px}
+.fcard pre{margin:0;border-radius:0;box-shadow:none;max-height:420px;border-top:.5px solid var(--glass-line)}
+.fcard.run>summary .fp{font-weight:500}
 .tool{margin:6px 0;border-radius:var(--r-sm);background:var(--glass-sunken);box-shadow:inset 0 0 0 .5px var(--glass-line);overflow:hidden;font-size:12.5px}
 .tool>div{padding:5px 11px;display:flex;gap:8px;align-items:center;cursor:pointer}
 .tool .nm{font-weight:650}.tool .cmd{font-family:var(--mono);font-size:11.5px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
@@ -288,8 +296,56 @@ const eng=id=>S.cfg.engineers.find(e=>e.id===id);
 const setHTML=(el,h)=>{if(el&&el._h!==h){el.innerHTML=h;el._h=h}};
 const engByName=n=>S.cfg.engineers.find(e=>e.name===n);
 
-function md(src){
-  const blocks=[];src=String(src||'').replace(/```(\w*)\n?([\s\S]*?)```/g,(_,l,c)=>{blocks.push(c.replace(/\n$/,''));return `\u0000${blocks.length-1}\u0000`});
+// Fenced blocks: a fence opens at a line starting with ``` and closes at a line that is only ```. A block with no
+// closing fence (a reply still streaming, or cut off by the provider) runs to the end instead of spilling out as text.
+function fences(src){
+  const parts=[];let text=[],blk=null;
+  for(const ln of String(src||'').split('\n')){
+    if(!blk){const m=ln.match(/^\s*```([\w-]*)\s*$/);
+      if(m){parts.push({t:'text',v:text.join('\n')});text=[];blk={t:'code',lang:m[1]||'',lines:[],open:true};continue}
+      text.push(ln)}
+    else if(/^\s*```\s*$/.test(ln)&&(blk.lang!=='aether'||jsonClosed(blk.lines))){blk.open=false;parts.push(blk);blk=null}
+    else blk.lines.push(ln)}
+  parts.push({t:'text',v:text.join('\n')});if(blk)parts.push(blk);
+  return parts.map(p=>p.t==='code'?{...p,v:p.lines.join('\n')}:p)}
+// File content can hold its own ``` lines (a README); a file block only ends once its JSON is complete, or right after
+// a line ending in } or ] when quotes inside the content make the JSON impossible to follow.
+function jsonClosed(lines){const t=lines.join('\n');let d=0,ins=false,started=false;
+  for(let i=0;i<t.length;i++){const c=t[i];if(ins){if(c==='\\')i++;else if(c==='"')ins=false;continue}
+    if(c==='"')ins=true;else if(c==='{'||c==='['){d++;started=true}else if(c==='}'||c===']')d--}
+  if(started&&d<=0&&!ins)return true;const last=lines.filter(l=>l.trim()).pop()||'';return /^\s{0,2}[}\]][\s}\]]*$/.test(last)}
+// A JSON string literal starting at s[i] (the opening quote): [decoded text, closed?]. Forgiving like the server:
+// JS escapes (\' \$), raw newlines and unescaped quotes inside HTML are kept as they were meant.
+function jstr(s,i){let j=i+1,raw='';
+  while(j<s.length){const c=s[j];
+    if(c==='\\'){raw+=s.substr(j,2);j+=2;continue}
+    if(c==='"'){const after=s.slice(j+1).match(/^\s*(.)/);if(!after||/[,}\]]/.test(after[1]))return[dec(raw),true];raw+='\\"';j++;continue}
+    raw+=c;j++}
+  return[dec(raw),false];
+  function dec(r){r=r.replace(/\\(.)/gs,(m,ch)=>'"\\/bfnrtu'.includes(ch)?m:'\\\\'+ch).replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/\t/g,'\\t');
+    r=r.replace(/\\u(?![0-9a-fA-F]{4})/g,'\\\\u').replace(/\\$/,'');
+    try{return JSON.parse('"'+r+'"')}catch(e){return r.replace(/\\n/g,'\n').replace(/\\"/g,'"').replace(/\\\\/g,'\\')}}}
+function aetherFiles(body){
+  try{const j=JSON.parse(body);return{files:(j.files||[]).filter(f=>f&&f.path).map(f=>({path:f.path,content:typeof f.content==='string'?f.content:JSON.stringify(f.content,null,1),done:true})),cmds:(j.commands||[]).filter(c=>typeof c==='string')}}catch(e){}
+  const files=[],re=/"path"\s*:\s*"([^"\n]{1,300})"\s*,\s*"content"\s*:\s*"/g;let m;
+  while((m=re.exec(body))){const[c,done]=jstr(body,m.index+m[0].length-1);files.push({path:m[1],content:c,done})}
+  return{files,cmds:[]}}
+const fsize=n=>n<1024?n+' B':(n/1024).toFixed(1)+' KB';
+function fileCard(f,state){const n=f.content?f.content.split('\n').length:0;
+  const warn=!f.done?(state==='live'?'<span class="fw">writing…</span>':'<span class="fw">⚠ cut off — not written</span>'):'';
+  return `<details class="fcard"><summary><span>📄</span><span class="fp">${esc(f.path)}</span><span class="fm">${n} line${n===1?'':'s'} · ${fsize(new Blob([f.content||'']).size)}</span>${warn}</summary><pre><code>${esc(f.content||'')}</code></pre></details>`}
+function blockHtml(p,live){
+  const state=p.open?(live?'live':'cut'):'done';
+  if(p.lang==='aether'){const{files,cmds}=aetherFiles(p.v);
+    if(files.length||cmds.length)return files.map(f=>fileCard(p.open&&!f.done?f:{...f,done:f.done||!p.open},state)).join('')+cmds.map(c=>`<pre><code>$ ${esc(c)}</code></pre>`).join('');
+    return `<details class="fcard"><summary><span>📄</span><span class="fp">file block</span><span class="fm">${fsize(p.v.length)}</span>${state==='live'?'<span class="fw">writing…</span>':'<span class="fw">⚠ unreadable — not written</span>'}</summary><pre><code>${esc(p.v)}</code></pre></details>`}
+  const big=p.v.split('\n').length>14;
+  if(p.lang==='run'||p.lang==='bash'||p.lang==='sh'){const first=(p.v.split('\n').find(l=>l.trim()&&!/^\s*#/.test(l))||'').trim();
+    if(big)return `<details class="fcard run"><summary><span>▶</span><span class="fp">${esc(first.slice(0,90))}</span><span class="fm">${p.v.split('\n').length} lines</span>${state==='cut'?'<span class="fw">⚠ cut off — not run</span>':''}</summary><pre><code>${esc(p.v)}</code></pre></details>`}
+  if(big&&p.v.length>3000)return `<details class="fcard"><summary><span>⌘</span><span class="fp">${esc(p.lang||'code')}</span><span class="fm">${p.v.split('\n').length} lines · ${fsize(p.v.length)}</span>${state==='cut'?'<span class="fw">⚠ cut off</span>':''}</summary><pre><code>${esc(p.v)}</code></pre></details>`;
+  return `<pre><code>${esc(p.v)}</code></pre>`+(state==='cut'?'<div class="fm sm">⚠ cut off</div>':'')}
+function md(src,live){
+  const blocks=[];src=fences(src).map(p=>p.t==='text'?p.v:(blocks.push(p),`\n\u0000${blocks.length-1}\u0000\n`)).join('');
   let h=esc(src).replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>')
     .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" target="_blank">$1</a>');
   const out=[];let list=null;
@@ -300,7 +356,7 @@ function md(src){
     const hd=ln.match(/^#{1,4}\s+(.*)/);out.push(hd?`<p><b>${hd[1]}</b></p>`:(ln.trim()?`<p>${ln}</p>`:''));
   }
   if(list)out.push(`</${list}>`);
-  return out.join('').replace(/\u0000(\d+)\u0000/g,(_,i)=>`<pre><code>${esc(blocks[i])}</code></pre>`).replace(/<p>(<pre>[\s\S]*?<\/pre>)<\/p>/g,'$1');
+  return out.join('').replace(/<p>\u0000(\d+)\u0000<\/p>/g,'\u0000$1\u0000').replace(/\u0000(\d+)\u0000/g,(_,i)=>blockHtml(blocks[i],live));
 }
 
 // ── rendering
@@ -472,7 +528,7 @@ window.onEvent=ev=>{
     if(ev.phase==='summary')showSum({author:ev.author,text:'',live:true},true);
   }else if(ev.t==='text'&&box){box.text+=ev.d;const b=box.el.querySelector('.body');if(box.shell){b.textContent+=ev.d;scroll()}else{
       // Re-rendering the markdown on every chunk rebuilds the whole reply many times a second (flicker); batch it.
-      if(!box.timer)box.timer=setTimeout(()=>{box.timer=0;b.innerHTML=md(box.text);if(box.summary)showSum({author:box.author,text:box.text,live:true});scroll()},120);
+      if(!box.timer)box.timer=setTimeout(()=>{box.timer=0;b.innerHTML=md(box.text,true);if(box.summary)showSum({author:box.author,text:box.text,live:true});scroll()},120);
       box.step='Writing the answer…';nowText(box,'Writing the answer…')}}
   else if(ev.t==='tool'&&box){const t=box.el.querySelector('.steps');const ex=box.el.querySelector('[id="t-'+CSS.escape(ev.tool.id)+'"]');
     if(ex){const o=ex.classList.contains('open');ex.outerHTML=toolHtml(ev.tool);if(o)box.el.querySelector('[id="t-'+CSS.escape(ev.tool.id)+'"]').classList.add('open')}else{t.insertAdjacentHTML('beforeend',toolHtml(ev.tool));box.steps++}box.step=(ev.tool.state==='running'?'▶ ':ev.tool.state==='error'?'✕ ':'✓ ')+ev.tool.name+(ev.tool.command?': '+ev.tool.command:'');nowText(box,box.step);scroll()}

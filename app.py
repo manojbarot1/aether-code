@@ -475,22 +475,44 @@ def run_blocks(text: str) -> list[str]:
 
 
 def aether_block(text: str) -> dict:
-    """The last ```aether {...} block in a reply (the same protocol as aether-ai-team): "files" to write and
-    "commands" to run. Parsed with a real JSON decoder from the opening brace, so file content may contain
-    anything, fences included. strict=False accepts raw newlines inside strings (small models emit them)."""
+    """Every ```aether {...} block in a reply, merged in order (the same protocol as aether-ai-team): "files" to write
+    and "commands" to run. Models often send one block per file; only the last one used to count, so the others were
+    silently dropped. Parsed with a real JSON decoder from the opening brace, so file content may contain anything,
+    fences included; strict=False accepts raw newlines inside strings. A block with broken JSON is read by
+    lenient_files, which only takes files whose content is complete."""
     dec = json.JSONDecoder(strict=False)
-    for m in reversed(list(re.finditer(r"```aether[ \t]*\n", text or ""))):
-        start = text.find("{", m.end())
-        if start < 0:
-            continue
-        try:
-            data, _ = dec.raw_decode(text, start)
-        except ValueError:
-            continue
+    opens = list(re.finditer(r"```aether[ \t]*\n", text or ""))
+    files: dict[str, dict] = {}
+    cmds: list[str] = []
+    lenient = False
+    for i, m in enumerate(opens):
+        chunk = text[m.start():opens[i + 1].start() if i + 1 < len(opens) else len(text)]
+        start = chunk.find("{")
+        data = None
+        if start >= 0:
+            try:
+                data, _ = dec.raw_decode(chunk, start)
+            except ValueError:
+                data = None
         if isinstance(data, dict):
-            return data
-    files = lenient_files(text)
-    return {"files": files, "lenient": True} if files else {}
+            got = [f for f in (data.get("files") or []) if isinstance(f, dict)]
+            cmds += [c for c in (data.get("commands") or []) if isinstance(c, str)]
+        else:
+            got = lenient_files(chunk)
+            lenient = lenient or bool(got)
+        for f in got:
+            body = f.get("content")
+            if isinstance(body, str) and re.fullmatch(r"\s*\.\.\.[^\n]{0,60}\.\.\.\s*", body):
+                continue                     # the protocol's own example ("...the whole file..."), echoed back
+            files[str(f.get("path"))] = f
+    if not files and not cmds:
+        return {}
+    out = {"files": list(files.values())}
+    if cmds:
+        out["commands"] = cmds
+    if lenient:
+        out["lenient"] = True
+    return out
 
 
 def lenient_files(text: str) -> list[dict]:
@@ -2275,6 +2297,8 @@ class Api:
                 "otherwise finish with your answer."))
         return text
 
+    ELIDED = re.compile(r"(?://|#|/\*|<!--|\{/\*)[ \t]*(?:\.{3}|…)[ \t]*(?:the[ \t]+)?(?:rest|existing|remaining|other|same|previous|"
+                        r"unchanged|more|keep|original|your|code|implementation|as[ \t]+before)\b[^\n]{0,60}", re.I)
     PLAN_DONE = re.compile(r"(?mi)^\s*#+\s*Tasks\b[\s\S]*?^\s*@[\w .-]+?\s*[:\-–].*\|\s*files?\s*:")
     READ_ONLY = re.compile(r"^\s*(ls|cat|head|tail|grep|rg|find|wc|tree|pwd|file|stat|du|echo|sed\s+-n|git\s+(?:status|log|diff|show|branch)|node\s+--version|python3?\s+--version|which)\b")
     WRITES = re.compile(r"(?<![0-9&])>(?!\s*/dev/null)|\b(rm|mv|cp|tee|chmod|mkdir|touch|npm|npx|pip|kill|curl\s.*-o)\b|-exec|-delete|sed\s+-i")
@@ -2535,6 +2559,11 @@ class Api:
             if owner and owner != by:
                 report.append(f"✕ {norm}: not written — {owner} owns this file in the plan. Write only your own files; if it needs "
                               "a change for your part to work, say exactly what in your summary.")
+                continue
+            if gap := self.ELIDED.search(content):
+                # "// ... rest of the file ..." means the model sent a snippet; writing it replaces the whole file with it.
+                report.append(f"✕ {norm}: not written — it contains `{gap.group(0).strip()[:60]}`, so it is a snippet, and writing "
+                              "it would delete the rest of the file. Send the WHOLE file, every line, with nothing left out.")
                 continue
             data = content.encode("utf-8")
             if len(data) > 2 << 20:

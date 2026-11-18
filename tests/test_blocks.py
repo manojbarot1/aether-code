@@ -113,5 +113,27 @@ class Steps(unittest.TestCase):
                          [{"click": "#a"}, {"expect": "#b", "visible": True}, {"expect": "#c"}])
 
 
+
+class ManyBlocks(unittest.TestCase):
+    def test_every_block_counts(self):
+        t = (f'Here:\n{F}aether\n{{"files": [{{"path": "a.js", "content": "A"}}]}}\n{F}\nand\n'
+             f'{F}aether\n{{"files": [{{"path": "b.js", "content": "B"}}]}}\n{F}\nfix:\n'
+             f'{F}aether\n{{"files": [{{"path": "a.js", "content": "A2"}}]}}\n{F}')
+        self.assertEqual(files(t), {"a.js": "A2", "b.js": "B"})
+
+    def test_echoed_example_ignored(self):
+        t = f'{F}aether\n{{"files": [{{"path": "src/app.ts", "content": "...the whole file..."}}]}}\n{F}'
+        self.assertEqual(files(t), {})
+
+
+
+class Snippets(unittest.TestCase):
+    def test_elided_snippet_detected(self):
+        for t in ("// ... rest of the file ...", "/* ... existing code */", "<!-- … remaining markup -->"):
+            self.assertTrue(app.Api.ELIDED.search(t), t)
+        for t in ("const a = [...rest];", "f(...args) // spread", "export { a };"):
+            self.assertFalse(app.Api.ELIDED.search(t), t)
+
+
 if __name__ == "__main__":
     unittest.main()
