@@ -2278,6 +2278,8 @@ class Api:
         one script, so heredocs survive. API engineers do all their work this way, so they get more rounds than CLIs."""
         text = self._run_once(sid, eng, cfg, st, target, directive, phase)
         retold, acted, idle_retold, broke = 0, False, False, 0
+        sigs: list[tuple] = []                       # what each round said and ran, to catch an agent going in circles
+        looped = 0
         for _ in range({"plan": 3, "fix": 6}.get(phase, 12) if eng["provider"] == API else 3):
             brokered = phase != "summary" and (st["mode"] in ("plan", "edit") or (eng["provider"] == API and st["mode"] == "auto"))
             block = aether_block(text) if brokered else {}
@@ -2288,6 +2290,22 @@ class Api:
                 break
             if phase == "plan" and self.PLAN_DONE.search(text or ""):
                 break      # the plan is written. Its acceptance checks run at verification; another round only tempts the lead to build alone
+            # Free models fall into loops: the same "it's all complete" reply with the same `aserve .` / `kill <pid>`,
+            # round after round. Same words, or the same commands three times (numbers ignored) is a loop: one nudge,
+            # then the agent's turn ends.
+            norm = lambda t: re.sub(r"\d+", "#", re.sub(r"\s+", " ", t or "")).strip()
+            sig = (norm(text)[:600], tuple(norm(c) for c in cmds), tuple(sorted(str(f.get("path")) for f in files)))
+            same_words = any(sig[0] and sig[0] == o[0] for o in sigs[-3:])
+            same_cmds = bool(sig[1]) and not files and sum(1 for o in sigs if o[1] == sig[1] and not o[2]) >= 2
+            sigs.append(sig)
+            if same_words or same_cmds:
+                looped += 1
+                if looped > 1:
+                    self._post(sid, "system", "Aether", f"{eng['name']} is repeating itself — ending its turn so the job moves on.")
+                    break
+                self._post(sid, "system", "Aether", f"{eng['name']} repeated an earlier step — asking it to change course.")
+                text = self._run_once(sid, eng, cfg, st, target, phase=phase, directive=self.LOOPING)
+                continue
             if not (cmds or files):
                 # A model that writes its own tool-call syntax (<tool_call>, <function=…>) instead of a ```run block
                 # gets nothing run, and used to end the whole job there, silently. Tell it, at most twice.
@@ -2391,6 +2409,9 @@ class Api:
               "<parameter>). The ONLY actions are a ```run block (shell commands) and one ```aether block (files). "
               "Redo that step now with a ```run or ```aether block, or give your final answer if you are done.")
 
+    LOOPING = ("You just repeated an earlier reply or the same commands, and nothing changed. Don't start or stop servers or "
+               "re-announce that it is done. If something still fails, change the file that causes it (a different fix than "
+               "before); if your part really is finished, say so in one line and stop — Aether runs the checks itself.")
     NOTHING_DONE = ("You have not run or written anything yet, so nothing is built. Do the user's request now: create the "
                     "files with one ```aether block and/or run commands with ```run blocks, then check the result. "
                     "If the request truly needs no files or commands, say exactly why in one or two sentences.")
