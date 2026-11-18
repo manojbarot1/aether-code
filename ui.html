@@ -145,7 +145,7 @@ select.field option{color:#111}
 .pchip .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:230px;color:var(--text-2)}.pchip .e{color:var(--text-3);font-variant-numeric:tabular-nums}
 .pchip.ph{cursor:default;background:var(--accent-soft);color:var(--accent);font-weight:600}
 /* right-hand summary: the lead's wrap-up of the last finished job */
-#app.sum-open{grid-template-columns:var(--side-w) minmax(0,1fr) 320px}
+#app.sum-open{grid-template-columns:var(--side-w) minmax(0,1fr) 360px}
 #sum{display:none;flex-direction:column;min-height:0;border-radius:var(--r-xl);overflow:hidden}
 #app.sum-open #sum{display:flex}
 #sum .hd{display:flex;align-items:center;gap:6px;padding:12px 12px 10px 16px;border-bottom:1px solid var(--glass-line)}
@@ -164,6 +164,56 @@ select.field option{color:#111}
 #main.drop{box-shadow:inset 0 0 0 2px var(--accent),var(--glass-shadow)}
 #cwd{max-width:240px;justify-content:flex-start;overflow:hidden;text-overflow:ellipsis}
 html.web .desk-only{display:none}
+/* Project panel: Status tab */
+#sum .hd .segmented{flex:none}#sum .hd .sp{flex:1}
+#pstatus{flex:1;overflow:auto;padding:10px 14px 16px;font-size:12.5px;user-select:text;-webkit-user-select:text}
+#pstatus[hidden],#psum[hidden]{display:none}
+#psum{flex:1;display:flex;flex-direction:column;min-height:0}
+.ps-head{display:flex;flex-direction:column;gap:6px;padding:4px 0 10px;border-bottom:1px solid var(--glass-line)}
+.ps-head .nm{font-weight:650;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ps-head .rq{color:var(--text-3);font-size:11.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ps-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.ps-steps{display:flex;gap:4px;flex-wrap:wrap;margin-top:2px}
+.ps-steps span{font-size:11px;padding:2px 8px;border-radius:var(--r-pill);background:var(--glass-sunken);color:var(--text-3)}
+.ps-steps span.done{color:var(--ok);background:rgba(52,209,127,.12)}.ps-steps span.now{color:#fff;background:var(--accent);animation:pspulse 1.6s ease-in-out infinite}
+@keyframes pspulse{50%{opacity:.65}}
+.ps-final{margin-top:8px;padding:8px 10px;border-radius:var(--r-sm);font-size:12px}
+.ps-final.ok{background:rgba(52,209,127,.12);color:var(--ok)}.ps-final.bad{background:var(--err-soft);color:var(--err)}
+#pstatus details{margin-top:10px;border-bottom:1px solid var(--glass-line);padding-bottom:8px}
+#pstatus summary{cursor:pointer;font-weight:650;font-size:12px;letter-spacing:.02em;color:var(--text-2);list-style:none;display:flex;gap:6px;align-items:center;padding:4px 0}
+#pstatus summary::-webkit-details-marker{display:none}#pstatus summary::before{content:"▸";color:var(--text-3);transition:transform .15s}#pstatus details[open] summary::before{transform:rotate(90deg)}
+#pstatus summary .c{margin-left:auto;font-weight:500;color:var(--text-3)}
+.ps-item{display:flex;gap:8px;align-items:flex-start;padding:5px 0}
+.ps-item .ic{flex:none;width:16px;text-align:center}.ps-item .tx{flex:1;min-width:0}
+.ps-item .sub{color:var(--text-3);font-size:11.5px;margin-top:2px;overflow-wrap:anywhere}
+.ps-dot{width:20px;height:20px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:10px;color:#fff}
+.ps-files{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.ps-files code{font-size:10.5px;padding:1px 5px;border-radius:5px;background:var(--glass-sunken)}
+.ps-files code.miss{color:var(--err);background:var(--err-soft)}
+.ps-tl{position:relative;padding-left:14px}.ps-tl::before{content:"";position:absolute;left:4px;top:4px;bottom:4px;width:1px;background:var(--glass-line)}
+.ps-tl .ev{position:relative;padding:3px 0;color:var(--text-2)}.ps-tl .ev::before{content:"";position:absolute;left:-13px;top:8px;width:7px;height:7px;border-radius:50%;background:var(--text-3)}
+.ps-tl .ev.phase::before{background:var(--accent)}.ps-tl .ev.warn::before{background:var(--warn)}.ps-tl .ev.bad::before{background:var(--err)}.ps-tl .ev.ok::before{background:var(--ok)}
+.ps-tl .ev.phase{color:var(--text);font-weight:600}.ps-tl .tm{color:var(--text-3);font-variant-numeric:tabular-nums;margin-right:6px}
+.ps-adv{padding:7px 9px;border-radius:var(--r-sm);background:var(--glass-sunken);margin-top:6px}
+.ps-adv.act{background:var(--accent-soft)}.ps-adv.warn{background:rgba(245,165,36,.13)}.ps-adv.ok{background:rgba(52,209,127,.12)}
+.ps-adv button{margin-top:6px}
+.ps-empty{color:var(--text-3);padding:24px 4px;text-align:center}
+/* Kanban of the plan's tasks (compact in the panel, large in the board view) */
+.kb{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:4px}
+.kb-col{background:var(--glass-sunken);border-radius:var(--r-sm);padding:6px 5px;min-height:60px}
+.kb-col h4{margin:0 0 6px;font-size:10.5px;font-weight:650;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);display:flex;justify-content:space-between}
+.kb-col.prog h4{color:var(--accent)}.kb-col.fix h4{color:var(--err)}.kb-col.done h4{color:var(--ok)}
+.kb-card{background:var(--glass-strong);border-radius:8px;padding:6px 7px;margin-bottom:5px;box-shadow:inset 0 0 0 .5px var(--glass-line);border-left:3px solid var(--c,#888);font-size:11.5px}
+.kb-card .o{font-weight:650;display:flex;align-items:center;gap:5px}.kb-card .o i{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pspulse 1.2s infinite}
+.kb-card .tk{color:var(--text-2);margin-top:2px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.kb-card .ps-files{margin-top:4px}
+#kbBoard{position:fixed;inset:0;z-index:12;background:rgba(10,14,28,.45);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);display:none;padding:24px}
+#kbBoard.show{display:flex}
+#kbBoard .wrap{flex:1;display:flex;flex-direction:column;border-radius:var(--r-xl);background:var(--glass-strong);padding:18px 20px;min-height:0}
+#kbBoard .top{display:flex;align-items:center;gap:10px;margin-bottom:12px}#kbBoard .top b{font-size:16px}#kbBoard .top .sp{flex:1}
+#kbBoard .kb{flex:1;gap:12px;min-height:0}#kbBoard .kb-col{overflow:auto;padding:10px 8px}
+#kbBoard .kb-col h4{font-size:12px}#kbBoard .kb-card{font-size:13px;padding:10px 12px;margin-bottom:8px}
+#kbBoard .kb-card .tk{-webkit-line-clamp:unset}
+@media (max-width:760px){#kbBoard .kb{grid-template-columns:1fr 1fr}}
 /* drag the sidebar's right edge to widen it (full session names); double-click resets */
 #sideGrip{position:absolute;top:14px;bottom:14px;right:0;width:9px;cursor:col-resize;z-index:5;touch-action:none}
 #sideGrip::after{content:"";position:absolute;top:0;bottom:0;right:3px;width:3px;border-radius:3px;background:var(--accent,#5b8cff);opacity:0;transition:opacity .15s}
@@ -197,7 +247,7 @@ body.resizing{cursor:col-resize;user-select:none;-webkit-user-select:none}
         <option value="chat">Chat only</option><option value="plan">Plan (read files)</option>
         <option value="edit">Edit files</option><option value="auto">Auto (run commands)</option></select>
         <div class="segmented" id="apprseg" title="Auto: engineers' commands run without asking (only catastrophic ones like sudo or wiping the disk still ask). Ask: every command needs your OK."><button id="ap-on" onclick="setAppr('full')">⚡ Auto</button><button id="ap-off" onclick="setAppr('ask')">Ask</button></div>
-      <button class="btn" id="sumbtn" hidden onclick="toggleSum()" title="The lead's summary of the last finished job">📋 Summary</button>
+      <button class="btn" id="sumbtn" hidden onclick="toggleSum()" title="Project status: tasks, who is on what, checks, timeline and advice — and the lead's summary">📊 Project</button>
     </div>
     <div id="msgs"></div>
     <div id="progress"></div>
@@ -213,9 +263,12 @@ body.resizing{cursor:col-resize;user-select:none;-webkit-user-select:none}
     </div>
   </section>
   <aside id="sum" class="glass strong">
-    <div class="hd"><b>📋 Summary</b><button class="btn sm ghost" onclick="copySum()" title="Copy the summary">⧉ Copy</button><button class="btn sm icon ghost" onclick="toggleSum(false)" title="Close">✕</button></div>
-    <div class="meta" id="summeta"></div>
-    <div class="bd"><div class="bub" id="sumbody"></div></div>
+    <div class="hd"><div class="segmented"><button id="pt-status" onclick="pTab('status')">📊 Status</button><button id="pt-sum" onclick="pTab('sum')">📋 Summary</button></div><span class="sp"></span><button class="btn sm ghost" id="sumcopy" onclick="copySum()" title="Copy the summary">⧉ Copy</button><button class="btn sm icon ghost" onclick="toggleSum(false)" title="Close">✕</button></div>
+    <div id="pstatus"></div>
+    <div id="psum" hidden>
+      <div class="meta" id="summeta"></div>
+      <div class="bd"><div class="bub" id="sumbody"></div></div>
+    </div>
   </aside>
 </div>
 <div id="modal" onclick="if(event.target===this)closeModal()"><div id="card" class="glass"></div></div>
@@ -317,7 +370,7 @@ function renderSide(){
 })();
 
 // ── sessions
-async function openSession(id){S.cur=S.sessions.find(s=>s.id===id);renderSide();renderMsgs(await api().load_session(id))}
+async function openSession(id){S.cur=S.sessions.find(s=>s.id===id);renderSide();renderMsgs(await api().load_session(id));PST=null;loadStatus()}
 async function newSession(){const s=await api().new_session();S.sessions.unshift(s);openSession(s.id)}
 async function delSession(id){const x=S.sessions.find(s=>s.id===id);if(await askBox(`Delete "${x.title}" and its messages? This can't be undone.`,null,'Delete')===null)return;
   await api().delete_session(id);S.sessions=S.sessions.filter(s=>s.id!==id);
@@ -394,16 +447,72 @@ window.onEvent=ev=>{
   else if(ev.t==='autoapproved'){if($('msgs').querySelector('.empty'))$('msgs').innerHTML='';$('msgs').insertAdjacentHTML('beforeend',`<div class="m"><div class="bub sm" style="padding:2px 10px;background:none;box-shadow:none">✓ ${esc(ev.who)} ran <code>${esc(ev.cmd.length>90?ev.cmd.slice(0,90)+'…':ev.cmd)}</code> <span class="sm">(${esc(ev.why)})</span></div></div>`);scroll()}
   else if(ev.t==='approval'){if($('msgs').querySelector('.empty'))$('msgs').innerHTML='';
     $('msgs').insertAdjacentHTML('beforeend',`<div class="m" id="ap-${ev.cid}">${avatar(ev.who)}<div class="bub"><div class="who">${esc(ev.who)} wants to run a command <span class="badge accent">${esc(ev.where)}</span></div><pre><code>$ ${esc(ev.cmd)}</code></pre><div class="sm">in ${esc(ev.cwd)}</div><div class="apb" style="display:flex;gap:8px;margin-top:8px"><button class="btn sm primary" onclick="apv('${ev.cid}',true)">Run</button><button class="btn sm" onclick="apv('${ev.cid}',false)">Skip</button>${ev.risky?'<span class="sm" style="align-self:center">⚠ risky — always asks</span>':`<button class="btn sm ghost" onclick="apv('${ev.cid}',true,'session')" title="Run it, and run every non-risky command this session without asking">Allow all this session</button>`}</div></div></div>`);scroll()}
-  else if(ev.t==='message'){if(ev.message.author==='Team'&&ev.message.role==='system')PH=ev.message.content.split(' · ')[0];if($('msgs').querySelector('.empty'))$('msgs').innerHTML='';$('msgs').insertAdjacentHTML('beforeend',msgHtml(ev.message));scroll()}
+  else if(ev.t==='message'){if(ev.message.author==='Team'&&ev.message.role==='system'){PH=ev.message.content.split(' · ')[0];
+      if(/^(Plan|Quick)$/.test(PH)&&!projOpen()){toggleSum(true);pTab('status')}else if(projOpen()&&PT==='status')loadStatus()}if($('msgs').querySelector('.empty'))$('msgs').innerHTML='';$('msgs').insertAdjacentHTML('beforeend',msgHtml(ev.message));scroll()}
   else if(ev.t==='memory'){S.memory=ev.memory;if(ev.learned){const c=$('chips');const o=c.textContent;c.textContent='🧠 Memory updated';setTimeout(renderSide,2500)}}
-  else if(ev.t==='idle'){PH='';renderProgress();$('jump')&&($('jump').hidden=true);setBusy(false);S.sessions.sort((a,b)=>0)}
+  else if(ev.t==='idle'){PH='';renderProgress();setTimeout(loadStatus,300);$('jump')&&($('jump').hidden=true);setBusy(false);S.sessions.sort((a,b)=>0)}
 };
 // ── summary panel
 let SUM=null;   // {author, text, ts, live}
-function showSum(s,open){SUM=s;$('sumbtn').hidden=!s;if(!s){toggleSum(false);return}
+function showSum(s,open){SUM=s;$('pt-sum').disabled=!s;projBtn();
+  if(!s){if(PT==='sum')pTab('status');return}
   $('summeta').textContent=s.author+(s.live?' · writing…':s.ts?' · '+new Date(s.ts*1000).toLocaleString():'');
-  $('sumbody').innerHTML=s.text?md(s.text):'<p class="sm">The lead is writing the summary…</p>';if(open)toggleSum(true)}
-function toggleSum(v){const a=$('app');const on=v===undefined?!a.classList.contains('sum-open'):!!v;a.classList.toggle('sum-open',on&&!!SUM)}
+  $('sumbody').innerHTML=s.text?md(s.text):'<p class="sm">The lead is writing the summary…</p>';if(open){toggleSum(true);pTab('sum')}}
+function projOpen(){return $('app').classList.contains('sum-open')}
+function projBtn(){$('sumbtn').hidden=!(SUM||(PST&&!PST.empty&&!PST.error))}
+function toggleSum(v){const a=$('app');const on=v===undefined?!projOpen():!!v;a.classList.toggle('sum-open',on);if(on){if(PT==='status')loadStatus()}}
+function pTab(t){PT=t==='sum'&&!SUM?'status':t;$('pstatus').hidden=PT!=='status';$('psum').hidden=PT!=='sum';$('sumcopy').hidden=PT!=='sum';
+  $('pt-status').setAttribute('aria-pressed',PT==='status');$('pt-sum').setAttribute('aria-pressed',PT==='sum');if(PT==='status')renderStatus()}
+
+// ── project status (Status tab): built by the engine from the session's messages
+let PT='status',PST=null,PSTSID=null;
+async function loadStatus(){const sid=S.cur?.id;if(!sid)return;
+  try{PST=await api().job_status(sid)}catch(e){PST={error:String(e)}}
+  PSTSID=sid;projBtn();if(projOpen()&&PT==='status')renderStatus();else renderBoard()}
+setInterval(()=>{const bo=$('kbBoard');if(S.busy&&((projOpen()&&PT==='status')||(bo&&bo.classList.contains('show'))))loadStatus()},3000);
+const fmtDur=s=>{s=Math.max(0,Math.round(s));return s<60?s+'s':s<3600?Math.floor(s/60)+'m '+String(s%60).padStart(2,'0')+'s':Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m'};
+function usePrompt(i){const a=PST&&PST.advice[i];if(!a||!a.prompt)return;const el=$('in');el.value=a.prompt;el.focus();el.dispatchEvent(new Event('input',{bubbles:true}))}
+// Kanban of the plan's tasks: To do · In progress · Needs fix · Done
+function kanban(d,big){const col=n=>(d.team.find(p=>p.name===n)||{}).color||'#888';
+  const failing=(d.checks||[]).filter(c=>!c.ok).map(c=>c.detail).join(' ');
+  const lane=t=>t.state==='working'?'prog':t.state==='incomplete'||(t.state==='done'&&/failed|interrupted/.test(d.state)&&t.files.some(f=>failing.includes(f.path)))?'fix':t.state==='done'?'done':'todo';
+  const cols=[['todo','To do'],['prog','In progress'],['fix','Needs fix'],['done','Done']];
+  const card=t=>`<div class="kb-card" style="--c:${col(t.owner)}"><div class="o">${t.state==='working'?'<i></i>':''}${esc(t.owner)}</div><div class="tk" title="${esc(t.text)}">${esc(t.text)}</div>${t.reassigned?`<div class="sub">↪ ${esc(t.reassigned)}</div>`:''}${big&&t.files.length?`<div class="ps-files">${t.files.map(f=>`<code class="${f.ok?'':'miss'}">${f.ok?'':'○ '}${esc(f.path)}</code>`).join('')}</div>`:''}</div>`;
+  return `<div class="kb">${cols.map(([k,l])=>{const ts=d.tasks.filter(t=>lane(t)===k);return `<div class="kb-col ${k}"><h4>${l}<span>${ts.length}</span></h4>${ts.map(card).join('')}</div>`}).join('')}</div>`}
+function openBoard(){let b=$('kbBoard');if(!b){document.body.insertAdjacentHTML('beforeend','<div id="kbBoard" onclick="if(event.target===this)closeBoard()"><div class="wrap"><div class="top"><b id="kbTitle">Task board</b><span class="sp"></span><span id="kbMeta" class="badge"></span><button class="btn sm icon ghost" onclick="closeBoard()" title="Close (Esc)">✕</button></div><div id="kbBody" style="flex:1;display:flex;min-height:0"></div></div></div>');b=$('kbBoard')}
+  b.classList.add('show');renderBoard()}
+function closeBoard(){const b=$('kbBoard');if(b)b.classList.remove('show')}
+function renderBoard(){const b=$('kbBoard');if(!b||!b.classList.contains('show')||!PST||!PST.tasks)return;
+  $('kbTitle').textContent='Task board · '+((PST.project||'').replace(/\/+$/,'').split('/').pop()||'this session');
+  $('kbMeta').textContent=(PST.running?'● running · ':'')+PST.tasks.filter(t=>t.state==='done').length+'/'+PST.tasks.length+' done';
+  $('kbBody').innerHTML=kanban(PST,true)}
+addEventListener('keydown',e=>{if(e.key==='Escape')closeBoard()});
+function renderStatus(){renderBoard();const el=$('pstatus');if(!el)return;const d=PST;
+  if(!d||d.empty){el.innerHTML='<div class="ps-empty">No job in this session yet.<br>Give the team a task and its progress shows here.</div>';return}
+  if(d.error){el.innerHTML=`<div class="ps-empty">Status unavailable: ${esc(d.error)}</div>`;return}
+  const badge={running:'<span class="badge accent">● running</span>',passed:'<span class="badge ok">✓ passed</span>',failed:'<span class="badge err">✕ failed</span>',stopped:'<span class="badge warn">stopped</span>',interrupted:'<span class="badge warn">⚠ interrupted</span>',done:'<span class="badge">finished</span>'}[d.state]||'';
+  const el_=d.running?Date.now()/1000-d.started:d.elapsed;
+  const proj=(d.project||'').replace(/\/+$/,'').split('/').pop()||'This session';
+  let h=`<div class="ps-head"><div class="ps-row"><span class="nm" title="${esc(d.project)}">📁 ${esc(proj)}</span></div>
+    <div class="ps-row">${badge}${d.kind?`<span class="badge">${esc(d.kind)}</span>`:''}<span class="badge" title="Started ${new Date(d.started*1000).toLocaleString()}">⏱ ${fmtDur(el_)}</span></div>
+    <div class="rq" title="${esc(d.request)}">${esc(d.request)}</div>
+    ${d.steps.length?`<div class="ps-steps">${d.steps.map(s=>`<span class="${s.state}">${s.state==='done'?'✓ ':''}${esc(s.label)}</span>`).join('')}</div>`:''}
+    ${d.final?`<div class="ps-final ${d.final.includes('PASSED')?'ok':'bad'}">${esc(d.final)}</div>`:''}</div>`;
+  if(d.advice.length)h+=`<details open><summary>💡 What could be better<span class="c">${d.advice.length}</span></summary>${d.advice.map((a,i)=>`<div class="ps-adv ${a.level}">${esc(a.text)}${a.prompt?`<div><button class="btn sm" onclick="usePrompt(${i})" title="${esc(a.prompt)}">Ask the team →</button></div>`:''}</div>`).join('')}</details>`;
+  if(d.requirements.length){const ok=d.requirements.filter(r=>r.state==='ok').length,bad=d.requirements.filter(r=>r.state==='bad').length;
+    h+=`<details ${d.requirements.length<=14?'open':''}><summary>✅ Requirements<span class="c">${ok}/${d.requirements.length}${bad?` · ${bad} ✗`:''}</span></summary>${d.requirements.map(r=>`<div class="ps-item"><span class="ic">${{ok:'✅',bad:'❌',pending:'⏳',unknown:'▫️'}[r.state]||'▫️'}</span><div class="tx"><b>${esc(r.id)}</b> ${esc(r.text)}</div></div>`).join('')}</details>`}
+  if(d.tasks.length){const done=d.tasks.filter(t=>t.state==='done').length;
+    h+=`<details open><summary>🧩 Tasks<span class="c">${done}/${d.tasks.length} done</span><button class="btn sm ghost" style="margin-left:6px" onclick="event.preventDefault();openBoard()" title="Open the task board full size">⤢ Board</button></summary>${kanban(d,false)}</details>`}
+  if(d.team.length){const now={working:'<span class="badge accent">● working</span>',idle:'<span class="badge">idle</span>',unavailable:'<span class="badge warn">unavailable</span>',failed:'<span class="badge err">failed</span>'};
+    h+=`<details open><summary>👥 Who is doing what<span class="c">${d.team.filter(p=>p.now==='working').length} working</span></summary>${d.team.map(p=>`<div class="ps-item"><span class="ps-dot" style="background:${p.color}">${esc(p.avatar||p.name[0])}</span><div class="tx"><div class="ps-row"><b>${esc(p.name)}</b>${p.roles.map(r=>`<span class="badge">${esc(r)}</span>`).join('')}${now[p.now]||''}</div>
+      <div class="sub">${p.replies} replies · ${p.commands} commands · ${p.files.length} files · ${fmtDur(p.active_s)} active${p.nudges?` · ${p.nudges} reminders`:''}${p.problems?` · ${p.problems} stalls`:''}</div>
+      ${p.why?`<div class="sub">⚠ ${esc(p.why)}</div>`:''}<div class="sub" title="${esc(p.last)}">“${esc(p.last)}”</div></div></div>`).join('')}</details>`}
+  if(d.checks.length)h+=`<details open><summary>🔎 Latest checks<span class="c">${d.checks.filter(c=>c.ok).length}/${d.checks.length} passed</span></summary>${d.checks.map(c=>`<div class="ps-item" title="${esc(c.cmd)}"><span class="ic">${c.ok?'✅':'❌'}</span><div class="tx"><b>${esc(c.name)}</b>${c.fails>1?` <span class="sub">(${c.fails} problems)</span>`:''}${c.ok||!c.detail?'':`<div class="sub">${esc(c.detail)}</div>`}</div></div>`).join('')}</details>`;
+  if(d.timeline.length)h+=`<details ${d.running?'open':''}><summary>🕒 Timeline<span class="c">${d.timeline.length} events</span></summary><div class="ps-tl">${d.timeline.map(e=>`<div class="ev ${e.kind}"><span class="tm">+${fmtDur(e.t)}</span>${esc(e.text)}</div>`).join('')}</div></details>`;
+  const keep=[...el.querySelectorAll('details')].map(x=>x.open),top=el.scrollTop;
+  el.innerHTML=h;
+  if(PSTSID===S.cur?.id&&keep.length===el.querySelectorAll('details').length)el.querySelectorAll('details').forEach((x,i)=>x.open=keep[i]);
+  el.scrollTop=top}
 function copySum(){if(SUM)api().clip_set(SUM.text)}
 
 // ── attachments: saved in the working folder (attachments/); the message lists their paths

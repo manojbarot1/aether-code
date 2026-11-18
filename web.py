@@ -42,7 +42,7 @@ import app  # noqa: E402
 # Api methods the UI calls (ui.html, ctxmenu.js). Nothing else is reachable over HTTP.
 ALLOWED = {
     "add_memory", "approve", "archive_session", "bootstrap", "check_status", "clip_get", "clip_set",
-    "delete_engineer", "delete_memory", "delete_session", "delete_ssh", "list_dirs", "list_models",
+    "delete_engineer", "delete_memory", "delete_session", "delete_ssh", "job_status", "list_dirs", "list_models",
     "load_session", "make_dir", "new_session", "pick_dir", "rename_session", "save_engineer", "save_ssh", "send",
     "set_auto_memory", "ssh_config_hosts", "stop", "test_ssh", "update_settings", "upload_file",
 }

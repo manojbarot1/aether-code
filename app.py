@@ -633,6 +633,31 @@ class Api:
         with db() as c:
             return [row_msg(r) for r in c.execute("SELECT * FROM messages WHERE session_id=? ORDER BY ts", (sid,))]
 
+    def job_status(self, sid: str) -> dict:
+        """The Project panel's Status tab: the session's current or last job (see job_status.py)."""
+        import importlib
+        import job_status as js
+        try:   # pick up a newer job_status.py without restarting the chat (and the jobs running in it)
+            mt = os.path.getmtime(js.__file__)
+            if getattr(js, "_mtime", mt) != mt:
+                js = importlib.reload(js)
+            js._mtime = mt
+        except OSError:
+            pass
+        cfg = load_cfg()
+        st = {**default_settings(cfg), **self._session_settings(sid)}
+        target = next((h for h in cfg["ssh"] if h["id"] == st["target"]), None) if st.get("target", "local") != "local" else None
+        engs = cfg["engineers"]
+        busy = self._busy.get(sid, set())
+        live = {"running": sid in self.procs, "local": target is None, "cwd": eff_cwd(st, target),
+                "engineers": [{"id": e["id"], "name": e["name"], "color": e.get("color"), "avatar": e.get("avatar")} for e in engs],
+                "busy_names": [e["name"] for e in engs if e["id"] in busy],
+                "down": {e["id"]: orch.down_reason(e["id"]) or "" for e in engs if orch.is_down(e["id"])}}
+        try:
+            return js.status(self.load_session(sid), live)
+        except Exception as exc:          # the panel must never break the chat
+            return {"error": str(exc)[:200]}
+
     def delete_session(self, sid: str) -> bool:
         self.stop(sid)
         with db() as c:
