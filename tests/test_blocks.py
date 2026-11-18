@@ -207,5 +207,36 @@ class Stall(unittest.TestCase):
         self.assertTrue(evs[-1]["ok"])
 
 
+
+class Exports(unittest.TestCase):
+    def test_export_of_nested_or_missing_name(self):
+        u = contract_check._undefined_exports
+        self.assertEqual(u("const init = () => {\n  const animate = () => {};\n};\nexport { init, animate };"), ["animate"])
+        self.assertEqual(u("function a(){}\nconst b = 1, c = 2;\nlet {d} = o;\nimport { f } from './f.js';\nexport { a, b, c, d, f as g };"), [])
+
+
+class Shrink(unittest.TestCase):
+    def test_gutting_a_file_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, "ui.js").write_text("x" * 8000)
+            o = types.SimpleNamespace(_baseline={}, _turn_t0={"s": 1.0}, _request={"s": "fix the failing checks"},
+                                      SNAP_SKIP=app.Api.SNAP_SKIP, REWRITE_OK=app.Api.REWRITE_OK)
+            old = app.eff_cwd
+            app.eff_cwd = lambda st, t: d
+            try:
+                self.assertIn("shrink ui.js", app.Api._shrinks(o, "s", {}, None, "ui.js", "export const ui = 1;"))
+                self.assertEqual(app.Api._shrinks(o, "s", {}, None, "ui.js", "y" * 6000), "")      # a real edit
+                self.assertEqual(app.Api._shrinks(o, "s", {}, None, "new.js", "z"), "")             # a new file
+                o._request["s"] = "rewrite ui.js from scratch, minimal"
+                self.assertEqual(app.Api._shrinks(o, "s", {}, None, "ui.js", "export const ui = 1;"), "")
+            finally:
+                app.eff_cwd = old
+
+    def test_repair_request_words(self):
+        for t in ("fix the failing checks", "finish the project", "continue", "it's broken"):
+            self.assertTrue(app.Api.FIX_REQ.search(t), t)
+        self.assertFalse(app.Api.FIX_REQ.search("add a dark mode toggle"))
+
+
 if __name__ == "__main__":
     unittest.main()

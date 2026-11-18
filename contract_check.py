@@ -49,6 +49,54 @@ def _names(block: str) -> list[str]:
     return [n for n in out if re.match(r"^[\w$]+$", n)]
 
 
+def _depths(code: str) -> list[int]:
+    """Brace depth at each character, ignoring braces inside strings, template text and regex-free comments."""
+    depth, out, quote, i = 0, [0] * len(code), "", 0
+    while i < len(code):
+        c = code[i]
+        if quote:
+            if c == "\\":
+                out[i] = depth
+                i += 1
+            elif c == quote:
+                quote = ""
+        elif c in "'\"`":
+            quote = c
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth = max(0, depth - 1)
+        if i < len(out):
+            out[i] = depth
+        i += 1
+    return out
+
+
+def _undefined_exports(code: str) -> list[str]:
+    """Names in a local `export { a, b }` list that the module never declares at its top level or imports (a
+    `const animate` inside a function doesn't count: `export { animate }` then fails to load)."""
+    out = []
+    depth = None
+    for block, frm in EXPORT_LIST.findall(code):
+        if frm:
+            continue                                  # re-exported from another file: checked there
+        for part in block.split(","):
+            name = re.split(r"\s+as\s+", part.strip())[0].strip()
+            if not re.fullmatch(r"[A-Za-z_$][\w$]*", name or "") or name == "default":
+                continue
+            n = re.escape(name)
+            if re.search(rf"\bimport\b[^;]*\b{n}\b[^;]*\bfrom\b", code):
+                continue
+            depth = depth or _depths(code)
+            top = lambda pat: any(depth[m.start()] == 0 for m in re.finditer(pat, code))
+            declared = top(rf"\b(?:function\s*\*?|class|const|let|var)\s+{n}\b") \
+                or top(rf"\b(?:const|let|var)\s*[{{\[][^=;]*\b{n}\b[^=;]*[}}\]]\s*=") \
+                or top(rf"(?:^|[,;\s]){n}\s*=(?!=)")
+            if not declared:
+                out.append(name)
+    return out
+
+
 def exports_of(path: Path, seen: set | None = None) -> tuple[set[str], bool]:
     """(exported names, has default)."""
     seen = seen or set()
@@ -86,6 +134,10 @@ def check(root: str | Path) -> list[str]:
     rel = lambda p: str(p.relative_to(root)) if str(p).startswith(str(root)) else str(p)
     for src in js:
         code = COMMENT.sub("", src.read_text(errors="replace"))
+        undefined = _undefined_exports(code)
+        if undefined:
+            problems.append(f"{rel(src)} exports {{{', '.join(undefined)}}}, which it never defines — the browser refuses to load "
+                            f"the module (SyntaxError: Export '{undefined[0]}' is not defined); define it or drop it from the export list")
         for default, block, spec in IMPORT_NAMED.findall(code):
             tgt = _resolve(src, spec)
             if tgt is None:

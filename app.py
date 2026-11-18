@@ -689,6 +689,7 @@ class Api:
         self._final: dict[str, dict] = {}                  # session → how the last verification ended
         self._auto_cmds: dict[str, list[str]] = {}         # session → commands the automatic checks run
         self._notes: dict[str, list[str]] = {}             # session → messages the user sent while the job ran
+        self._baseline: dict = {}         # file sizes when the request came in (see _shrinks)
 
     # ── ui plumbing
     def emit(self, ev: dict) -> None:
@@ -1229,9 +1230,18 @@ class Api:
             rt = orch.route(text, cands, bool(st.get("team", True)), [engs[i] for i in order] if mentioned else None)
             if rt.kind != "chat":
                 st = self._project_dir(sid, text, st, target)
-            if rt.kind != "chat" or len(cands) > 1:
+            team_plan = self._team_plan(st, target) if (rt.kind == "quick" and not mentioned and len(cands) >= 2
+                                                       and st.get("team", True) and self.FIX_REQ.search(text)) else ""
+            if team_plan:
+                self._post(sid, "system", "Team", f"Repair · this project was built by the team, so the team's repair loop takes it: "
+                           f"Aether's checks, one integrator per round, and any round that makes it worse is undone "
+                           f"({rt.lead['name']} leads)", {"phase": "verify"})
+                self._resume_team(sid, rt.lead, cands, team_plan, cfg, st, target)
+            elif rt.kind != "chat" or len(cands) > 1:
                 self._post(sid, "system", "Team", rt.label, {"phase": rt.kind})
-            if rt.kind in ("standard", "deep") and len(rt.members) >= 2:
+            if team_plan:
+                pass
+            elif rt.kind in ("standard", "deep") and len(rt.members) >= 2:
                 self._team(sid, rt.members, cfg, st, target)
             elif rt.kind == "chat":
                 for e in (rt.members if mentioned else [rt.lead]):
@@ -1858,6 +1868,33 @@ class Api:
                 pass
         return out
 
+    FIX_REQ = re.compile(r"\b(fix|fixes|repair|finish|continue|complete|failing|failed|failures|resume|carry on|make it work|broken)\b", re.I)
+
+    def _team_plan(self, st: dict, target: dict | None) -> str:
+        """The team plan saved in this project (.aether/PLAN.md) if it has task lines, else ''."""
+        if target is not None:
+            return ""
+        f = Path(os.path.expanduser(eff_cwd(st, target))).resolve() / ".aether" / "PLAN.md"
+        try:
+            plan = f.read_text(errors="replace") if f.is_file() else ""
+        except OSError:
+            return ""
+        return plan if re.search(r"(?m)^\s*@[\w .-]+?\s*[:\-–].*\|\s*files?\s*:", plan) else ""
+
+    def _resume_team(self, sid: str, lead: dict, cands: list[dict], plan: str, cfg: dict, st: dict, target: dict | None) -> None:
+        """"Fix the failing checks" on a team-built project: one agent alone tends to strip the files until the errors
+        stop. Restore the plan and file owners, then run the team's verify/repair loop (Aether's checks, a rotating
+        integrator, undo of rounds that make it worse) and the honest summary."""
+        names = {e["name"]: e for e in cands}
+        tasks = {m.group(1).strip(): m.group(2).strip()
+                 for m in re.finditer(r"(?m)^\s*@([^:\n]+?)\s*[:\-–]\s*(.+)$", plan) if m.group(1).strip() in names}
+        self._plan[sid] = plan
+        self._owners[sid] = self._parse_owners(tasks)
+        self._adopt_orphans(sid, plan)
+        fixers = [names[n] for n in tasks if not orch.is_down(names[n]["id"])] or [c for c in cands if c["id"] != lead["id"]]
+        self._verify(sid, lead, fixers, cfg, st, target, pool=cands)
+        self._summarize(sid, lead, cands, cfg, st, target)
+
     def _summarize(self, sid: str, lead: dict, pool: list[dict], cfg: dict, st: dict, target: dict | None) -> None:
         """The lead's closing hand-over (phase "summary"; the UI shows the latest one in its side panel)."""
         if sid in self.stopped:
@@ -2054,6 +2091,31 @@ class Api:
                 t.start()
             for t in threads:
                 t.join()
+
+    REWRITE_OK = re.compile(r"\b(rewrite|re-write|from scratch|start over|simplif\w*|strip\w*|remove|delete|cut down|minimal)\b", re.I)
+
+    def _shrinks(self, sid: str, st: dict, target: dict | None, rel: str, content: str) -> str:
+        """Asked to fix something, free models often "fix" it by rewriting a working file as a stub (an 8 KB ui.js
+        became 245 bytes; the error went away with the features). A file that was there when the request came in
+        may not lose most of itself, unless the user asked for a rewrite."""
+        if target is not None or self.REWRITE_OK.search(self._request.get(sid, "")):
+            return ""
+        base = self._baseline.get(sid)
+        if base is None or base[0] != self._turn_t0.get(sid):
+            root = Path(os.path.expanduser(eff_cwd(st, target))).resolve()
+            sizes = {}
+            if root != Path.home().resolve() and root.is_dir():
+                for p_ in root.rglob("*"):
+                    r_ = p_.relative_to(root)
+                    if p_.is_file() and not set(r_.parts) & self.SNAP_SKIP and len(sizes) < 3000:
+                        sizes[str(r_)] = p_.stat().st_size
+            base = self._baseline[sid] = (self._turn_t0.get(sid), sizes)
+        old = base[1].get(rel, 0)
+        new = len(content.encode("utf-8"))
+        if old >= 1500 and new < 0.4 * old:
+            return (f"it would shrink {rel} from {old / 1024:.1f} KB to {new / 1024:.1f} KB, deleting most of what works. Keep "
+                    "every existing feature, id and export; change only what the failure needs, and send the whole file.")
+        return ""
 
     SNAP_SKIP = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next", ".cache", "target"}
 
@@ -2636,6 +2698,9 @@ class Api:
             if owner and owner != by:
                 report.append(f"✕ {norm}: not written — {owner} owns this file in the plan. Write only your own files; if it needs "
                               "a change for your part to work, say exactly what in your summary.")
+                continue
+            if (shrunk := self._shrinks(sid, st, target, norm, content)):
+                report.append(f"✕ {norm}: not written — {shrunk}")
                 continue
             if gap := self.ELIDED.search(content):
                 # "// ... rest of the file ..." means the model sent a snippet; writing it replaces the whole file with it.
