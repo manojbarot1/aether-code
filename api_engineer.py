@@ -11,7 +11,10 @@ import argparse
 import json
 import re
 import os
+import socket
 import sys
+import threading
+import time
 import urllib.error
 import urllib.request
 
@@ -55,6 +58,8 @@ def ssl_hint(url: str, exc: Exception) -> str:
 
 
 MAX_CONTINUE = 3
+STALL_SECS = int(os.environ.get("AETHER_STALL_SECS", "90"))   # no text for this long: the provider has stalled
+STALL_RETRIES = 2
 
 
 def splice(before: str, more: str) -> str:
@@ -76,6 +81,24 @@ def stream_once(base: str, key: str, model: str, messages: list[dict], before: s
     body = {"model": model, "stream": True, "messages": messages}
     text, finish = [], ""
     held = [] if before else None
+    # A provider can start a reply and then go silent while the connection stays open (keep-alive pings reset the
+    # socket timeout), which froze whole jobs for 20+ minutes. A watchdog closes the stream after STALL_SECS
+    # without any text; the caller retries, or continues the part that arrived.
+    last, done, resp, stalled = [time.time()], threading.Event(), [None], [False]
+
+    def watch() -> None:
+        while not done.wait(3):
+            if time.time() - last[0] > STALL_SECS:
+                stalled[0] = True
+                r = resp[0]
+                if r is not None:
+                    try:
+                        r.fp.raw._sock.shutdown(socket.SHUT_RDWR)      # unblocks the read in the other thread
+                    except Exception:
+                        pass
+                return
+
+    threading.Thread(target=watch, daemon=True).start()
 
     def emit(chunk: str) -> None:
         nonlocal held
@@ -90,30 +113,41 @@ def stream_once(base: str, key: str, model: str, messages: list[dict], before: s
         text.append(chunk)
         out({"type": "text", "text": chunk})
 
-    with request(base, "/chat/completions", key, body, timeout=300) as r:
-        for raw in r:
-            line = raw.decode("utf-8", "replace").strip()
-            if not line.startswith("data:"):
-                continue
-            data = line[5:].strip()
-            if data == "[DONE]":
-                break
-            try:
-                ev = json.loads(data)
-            except ValueError:
-                continue
-            if ev.get("error"):
-                err = ev["error"]
-                out({"type": "result", "ok": False, "error": str(err.get("message") if isinstance(err, dict) else err)[:300]})
-                return None, "error"
-            for ch in ev.get("choices") or []:
-                d = ch.get("delta") or ch.get("message") or {}
-                think = d.get("reasoning_content") or d.get("reasoning")
-                if think:
-                    out({"type": "thought", "text": think})
-                if d.get("content"):
-                    emit(d["content"])
-                finish = ch.get("finish_reason") or finish
+    try:
+        with request(base, "/chat/completions", key, body, timeout=STALL_SECS + 30) as r:
+            resp[0] = r
+            for raw in r:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    ev = json.loads(data)
+                except ValueError:
+                    continue
+                if ev.get("error"):
+                    err = ev["error"]
+                    out({"type": "result", "ok": False, "error": str(err.get("message") if isinstance(err, dict) else err)[:300]})
+                    return None, "error"
+                for ch in ev.get("choices") or []:
+                    d = ch.get("delta") or ch.get("message") or {}
+                    think = d.get("reasoning_content") or d.get("reasoning")
+                    if think:
+                        last[0] = time.time()
+                        out({"type": "thought", "text": think})
+                    if d.get("content"):
+                        last[0] = time.time()
+                        emit(d["content"])
+                    finish = ch.get("finish_reason") or finish
+    except Exception:
+        if not stalled[0]:
+            raise
+    finally:
+        done.set()
+    if stalled[0]:
+        finish = "stalled"
     if held:
         rest = splice(before, "".join(held))
         if rest:
@@ -141,13 +175,22 @@ def main() -> int:
         # half-written (no task lines, broken JSON). When the reply stops at the limit, or inside an unclosed
         # ``` block, ask the model to continue where it stopped, up to MAX_CONTINUE times.
         messages = [{"role": "user", "content": prompt}]
-        full = ""
-        for attempt in range(1 + MAX_CONTINUE):
+        full, stalls, attempt = "", 0, 0
+        while attempt <= MAX_CONTINUE:
             text, finish = stream_once(args.base_url, key, model, messages, before=full)
             if text is None:
                 return 1
+            if finish == "stalled" and not text.strip():
+                stalls += 1
+                if stalls > STALL_RETRIES:
+                    out({"type": "result", "ok": False, "error": f"The provider stopped responding ({STALL_SECS}s with no reply, "
+                                                                  f"{stalls} tries)."})
+                    return 1
+                out({"type": "thought", "text": f"\n[provider sent nothing for {STALL_SECS}s — asking again]\n"})
+                continue                       # nothing arrived: the same request again (the router picks a provider anew)
+            attempt += 1
             full += text
-            cut = finish == "length" or full.count("```") % 2 == 1
+            cut = finish in ("length", "stalled") or full.count("```") % 2 == 1
             if not cut or not text.strip():
                 break
             messages = [{"role": "user", "content": prompt}, {"role": "assistant", "content": full},

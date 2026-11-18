@@ -158,5 +158,54 @@ class Undo(unittest.TestCase):
             self.assertTrue(Path(d, "new.js").exists())
 
 
+
+class Stall(unittest.TestCase):
+    def test_stalled_provider_is_retried_then_continued(self):
+        """A provider that goes silent (keep-alive pings, no text) must not freeze the job."""
+        import http.server
+        import subprocess
+        import threading
+        import time as _t
+        calls = []
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                calls.append(1)
+                self.rfile.read(int(self.headers["Content-Length"]))
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                send = lambda t, fin=None: self.wfile.write(
+                    ("data: " + __import__("json").dumps({"choices": [{"delta": {"content": t}, "finish_reason": fin}]}) + "\n\n").encode())
+                try:
+                    if len(calls) == 2:
+                        send("Hello wor")
+                    if len(calls) <= 2:
+                        for _ in range(20):
+                            self.wfile.write(b": ping\n\n")
+                            self.wfile.flush()
+                            _t.sleep(0.3)
+                    else:
+                        send("ld.", "stop")
+                        self.wfile.write(b"data: [DONE]\n\n")
+                except OSError:
+                    pass
+
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            run = subprocess.run([sys.executable, os.path.join(os.path.dirname(api_engineer.__file__), "api_engineer.py"),
+                                  "--base-url", f"http://127.0.0.1:{srv.server_port}/v1", "--model", "x"],
+                                 input="hi", capture_output=True, text=True, timeout=60, env={**os.environ, "AETHER_STALL_SECS": "2"})
+        finally:
+            srv.shutdown()
+        evs = [__import__("json").loads(l) for l in run.stdout.splitlines() if l.strip()]
+        self.assertEqual("".join(e["text"] for e in evs if e["type"] == "text"), "Hello world.")
+        self.assertTrue(evs[-1]["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()
