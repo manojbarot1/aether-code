@@ -1453,7 +1453,8 @@ class Api:
                 "otherwise finish with your answer."))
         return text
 
-    FOREIGN_CALL = re.compile(r"<tool_call>|<function[=\s>]|<parameter=|<invoke\b|\"tool_calls\"\s*:|<\|tool_call", re.I)
+    # Includes vendor variants such as <dots_function_call> (a free model emitted 300 KB of those and ended a job).
+    FOREIGN_CALL = re.compile(r"<tool_call>|<[\w-]*function_call\b|<function[=\s>]|<parameter=|<invoke\b|\"tool_calls\"\s*:|<\|tool_call", re.I)
     RETELL = ("Nothing was run: your last reply used a tool-call format this app ignores (<tool_call>, <function>, "
               "<parameter>). The ONLY actions are a ```run block (shell commands) and one ```aether block (files). "
               "Redo that step now with a ```run or ```aether block, or give your final answer if you are done.")
