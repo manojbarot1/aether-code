@@ -95,6 +95,15 @@ class Assets(unittest.TestCase):
             self.assertIn("b.png is an empty file", out)
             self.assertNotIn("ok.png", out)
 
+    def test_importmap_prefix_without_slash(self):
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, "index.html").write_text('<script type="importmap">{"imports": {"three": "https://x/three.module.js", '
+                                             '"three/addons": "https://x/jsm/"}}</script><script type="module" src="m.js"></script>')
+            Path(d, "m.js").write_text("import * as THREE from 'three';\nimport { OrbitControls } from 'three/addons/controls/OrbitControls.js';")
+            out = " ".join(contract_check.check(d))
+            self.assertIn('needs a trailing slash ("three/addons/")', out)
+            self.assertNotIn("imports 'three',", out)
+
 
 if __name__ == "__main__":
     unittest.main()

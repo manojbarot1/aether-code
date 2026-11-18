@@ -143,7 +143,38 @@ def check(root: str | Path) -> list[str]:
                 problems.append(f"scripts look up element id(s) {', '.join('#' + m for m in missing[:12])} that {rel(page)} does not have")
     problems += _state_classes(root, js)
     problems += _bad_assets(root)
+    problems += _importmap(root, js)
     return list(dict.fromkeys(problems))
+
+
+def _importmap(root: Path, js: list[Path]) -> list[str]:
+    """Bare imports (`three`, `three/addons/x.js`) in browser modules must resolve through the page's importmap: an exact
+    key, or a key ending in "/" that prefixes them. A prefix key without its "/" ("three/addons") resolves nothing, and
+    the whole page dies with 'Failed to resolve module specifier'."""
+    import json as _json
+    pages = [p for p in _files(root) if p.suffix == ".html"]
+    maps: dict[str, str] = {}
+    for page in pages:
+        for raw in re.findall(r"""<script[^>]*type\s*=\s*["']importmap["'][^>]*>(.*?)</script>""", page.read_text(errors="replace"), re.S | re.I):
+            try:
+                maps.update((_json.loads(raw).get("imports") or {}))
+            except ValueError:
+                return [f"{page.relative_to(root)} has an importmap that is not valid JSON, so every bare import fails"]
+    if not maps or (root / "package.json").exists():
+        return []                          # no importmap (bundler / Node project): not a browser-import setup to check
+    out = []
+    for src in js:
+        code = COMMENT.sub("", src.read_text(errors="replace"))
+        for spec in set(re.findall(r"""(?:\bfrom|\bimport)\s*\(?\s*['"]([^'"./][^'"]*)['"]""", code)):
+            if re.match(r"^(?:[a-z][a-z0-9+.-]*:|//)", spec, re.I):
+                continue
+            if spec in maps or any(k.endswith("/") and spec.startswith(k) for k in maps):
+                continue
+            near = max((k for k in maps if spec.startswith(k + "/")), key=len, default=None)
+            out.append(f"{src.relative_to(root)} imports '{spec}', which the page's importmap doesn't resolve"
+                       + (f": the key \"{near}\" needs a trailing slash (\"{near}/\") to map a path prefix" if near else
+                          f". Add it to the importmap (keys: {', '.join(sorted(maps))})"))
+    return out[:6]
 
 
 MAGIC = {".jpg": (b"\xff\xd8\xff",), ".jpeg": (b"\xff\xd8\xff",), ".png": (b"\x89PNG",), ".gif": (b"GIF8",),
