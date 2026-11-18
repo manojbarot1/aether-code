@@ -135,5 +135,28 @@ class Snippets(unittest.TestCase):
             self.assertFalse(app.Api.ELIDED.search(t), t)
 
 
+
+class Undo(unittest.TestCase):
+    def test_snapshot_restore(self):
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, "js").mkdir()
+            Path(d, "index.html").write_text("<div id=a></div>" * 50)
+            Path(d, "js", "app.js").write_text("export const a = 1;")
+            o = types.SimpleNamespace(E2E=app.Api.E2E, SNAP_SKIP=app.Api.SNAP_SKIP)
+            old = app.eff_cwd
+            app.eff_cwd = lambda st, t: d
+            try:
+                snap = app.Api._snapshot(o, {}, None)
+                Path(d, "index.html").write_text("<p>gone</p>")       # a bad repair
+                Path(d, "js", "app.js").unlink()
+                Path(d, "new.js").write_text("x")
+                changed = app.Api._restore(o, snap, {}, None)
+            finally:
+                app.eff_cwd = old
+            self.assertEqual(sorted(changed), ["index.html", "js/app.js"])
+            self.assertIn("<div id=a>", Path(d, "index.html").read_text())
+            self.assertTrue(Path(d, "new.js").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

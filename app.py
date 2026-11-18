@@ -1946,6 +1946,7 @@ class Api:
         """The lead tests the work for real (another engineer covers if the lead is down). Repair rounds on an explicit FAIL,
         up to VERIFY_ROUNDS verifications; the fixers get the findings themselves, not "read above"."""
         pool = pool or [lead, *fixers]
+        snap, best, undone = None, None, ""        # project files before the last repair, and the failure count they had
         for rnd in range(1, VERIFY_ROUNDS + 1):
             stray = self._stop_project_servers(st, target)
             if stray:
@@ -1953,6 +1954,21 @@ class Api:
             if orch.is_down(lead["id"]) or lead["id"] in self._failed_turn.get(sid, set()):
                 lead = self._substitute(sid, pool, set()) or lead
             auto_ok, auto = self._auto_checks(sid, st, target) if st["mode"] in ("edit", "auto") else (None, "")
+            score = sum(1 for ln in auto.splitlines() if ln.startswith("FAIL")) if auto else None
+            undone = ""
+            if snap is not None and best is not None and score is not None and score > best[0]:
+                # A repair must never leave the project worse than it found it (an integrator that rewrites the page
+                # from scratch and drops half of it). Put the files back, and tell the next one what happened.
+                changed = self._restore(snap, st, target)
+                self._post(sid, "system", "Aether", f"Repair round {rnd - 1} made it worse ({best[0]} → {score} failures) — undid its "
+                           f"changes to {', '.join(changed[:6]) or 'the files'}{'…' if len(changed) > 6 else ''}.", {"phase": "verify"})
+                undone = (f"NOTE: the previous repair round made things WORSE ({best[0]} → {score} failures), so Aether undid it: "
+                          f"{', '.join(changed[:8])} are back as they were. Don't rewrite whole files from scratch; change only "
+                          "what each failure needs, and keep every existing id, element and export.\n\n")
+                auto_ok, auto = best[1], best[2]
+                score = best[0]
+            if auto and (best is None or score <= best[0]):
+                best = (score, auto_ok, auto)
             if auto:
                 self._post(sid, "shell", "Aether checks", auto, {"phase": "verify", "shell": True})
             if auto_ok is False:
@@ -2019,9 +2035,11 @@ class Api:
                 if recheck else "Then re-run the failing check yourself and show the output.\n")
             self._post(sid, "system", "Team", f"Fix · {', '.join(m['name'] for m in fixers)} repair what failed (round {rnd})", {"phase": "work"})
 
+            snap = self._snapshot(st, target)
+
             def fix_directive(m):
                 mine = sorted(p_ for p_, o in own.items() if o == m["name"])
-                return (f"You are the INTEGRATOR for this repair round: the work was tested and it FAILED. The findings:\n\n{findings}\n\n"
+                return (undone + f"You are the INTEGRATOR for this repair round: the work was tested and it FAILED. The findings:\n\n{findings}\n\n"
                         + (f"(You wrote: {', '.join(mine)}.) " if mine else "")
                         + "Fix ALL of these problems yourself, in any file — nobody else is changing files now. Make the files agree "
                         "with the plan's Architecture (the contract); where it says nothing, change the fewest files. Read the files "
@@ -2036,6 +2054,44 @@ class Api:
                 t.start()
             for t in threads:
                 t.join()
+
+    SNAP_SKIP = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next", ".cache", "target"}
+
+    def _snapshot(self, st: dict, target: dict | None) -> dict | None:
+        """The project's files (path → bytes) before a repair round, so a round that makes things worse can be undone."""
+        if target is not None:
+            return None
+        root = Path(os.path.expanduser(eff_cwd(st, target))).resolve()
+        if root == Path.home().resolve() or not root.is_dir():
+            return None
+        out, total = {}, 0
+        for p_ in root.rglob("*"):
+            rel = p_.relative_to(root)
+            if not p_.is_file() or set(rel.parts) & self.SNAP_SKIP or str(rel) == self.E2E:
+                continue
+            size = p_.stat().st_size
+            if size > 2_000_000:
+                continue
+            total += size
+            if total > 40_000_000:
+                return None                          # too big to hold; no undo for this project
+            out[str(rel)] = p_.read_bytes()
+        return out
+
+    def _restore(self, snap: dict, st: dict, target: dict | None) -> list[str]:
+        """Put snapshot files back (changed or deleted since); files the round added are left alone. Returns what changed."""
+        root = Path(os.path.expanduser(eff_cwd(st, target))).resolve()
+        changed = []
+        for rel, data in snap.items():
+            f = root / rel
+            try:
+                if not f.is_file() or f.read_bytes() != data:
+                    f.parent.mkdir(parents=True, exist_ok=True)
+                    f.write_bytes(data)
+                    changed.append(rel)
+            except OSError:
+                pass
+        return changed
 
     def _write_check_script(self, st: dict, target: dict | None, cmds: list[str]) -> str:
         """All of Aether's checks as one short command for the integrator (free models retype long tool paths wrongly)."""
