@@ -73,7 +73,7 @@ select.field option{color:#111}
 @keyframes rise{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:none}}
 @keyframes pulse{70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
 /* layout */
-:root{--side-w:248px}
+:root{--side-w:248px;--sum-w:360px}
 #app{display:grid;grid-template-columns:var(--side-w) 1fr;gap:12px;height:100vh;padding:12px}
 #side{position:relative;display:flex;flex-direction:column;padding:16px 10px 12px;border-radius:var(--r-xl);min-height:0;overflow:hidden}
 #main{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;border-radius:var(--r-xl)}
@@ -145,8 +145,8 @@ select.field option{color:#111}
 .pchip .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:230px;color:var(--text-2)}.pchip .e{color:var(--text-3);font-variant-numeric:tabular-nums}
 .pchip.ph{cursor:default;background:var(--accent-soft);color:var(--accent);font-weight:600}
 /* right-hand summary: the lead's wrap-up of the last finished job */
-#app.sum-open{grid-template-columns:var(--side-w) minmax(0,1fr) 360px}
-#sum{display:none;flex-direction:column;min-height:0;border-radius:var(--r-xl);overflow:hidden}
+#app.sum-open{grid-template-columns:var(--side-w) minmax(0,1fr) var(--sum-w)}
+#sum{position:relative;display:none;flex-direction:column;min-height:0;border-radius:var(--r-xl);overflow:hidden}
 #app.sum-open #sum{display:flex}
 #sum .hd{display:flex;align-items:center;gap:6px;padding:12px 12px 10px 16px;border-bottom:1px solid var(--glass-line)}
 #sum .hd b{flex:1;font-size:14px;font-weight:650}
@@ -154,7 +154,7 @@ select.field option{color:#111}
 #sum .bd{flex:1;overflow:auto;padding:4px 16px 16px;user-select:text;-webkit-user-select:text}
 #sum .bd .bub{padding:0}
 @media (max-width:1100px){#app.sum-open{grid-template-columns:var(--side-w) minmax(0,1fr)}
-  #app.sum-open #sum{position:fixed;right:12px;top:12px;bottom:12px;width:min(340px,90vw);z-index:8;background:var(--glass-strong)}}
+  #app.sum-open #sum{position:fixed;right:12px;top:12px;bottom:12px;width:min(var(--sum-w),90vw);z-index:8;background:var(--glass-strong)}}
 /* attachments */
 #att{display:flex;gap:6px;flex-wrap:wrap;padding:6px 14px 0}#att:empty{display:none}
 .achip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 2px 0 10px;border-radius:var(--r-pill);background:var(--glass-sunken);box-shadow:inset 0 0 0 .5px var(--glass-line);font-size:11.5px;max-width:280px}
@@ -215,9 +215,10 @@ html.web .desk-only{display:none}
 #kbBoard .kb-card .tk{-webkit-line-clamp:unset}
 @media (max-width:760px){#kbBoard .kb{grid-template-columns:1fr 1fr}}
 /* drag the sidebar's right edge to widen it (full session names); double-click resets */
-#sideGrip{position:absolute;top:14px;bottom:14px;right:0;width:9px;cursor:col-resize;z-index:5;touch-action:none}
-#sideGrip::after{content:"";position:absolute;top:0;bottom:0;right:3px;width:3px;border-radius:3px;background:var(--accent,#5b8cff);opacity:0;transition:opacity .15s}
-#sideGrip:hover::after,#sideGrip:focus-visible::after,body.resizing #sideGrip::after{opacity:.7}
+#sideGrip,#sumGrip{position:absolute;top:14px;bottom:14px;right:0;width:9px;cursor:col-resize;z-index:5;touch-action:none}
+#sumGrip{right:auto;left:0}#sumGrip::after{right:auto!important;left:3px}
+#sideGrip::after,#sumGrip::after{content:"";position:absolute;top:0;bottom:0;right:3px;width:3px;border-radius:3px;background:var(--accent,#5b8cff);opacity:0;transition:opacity .15s}
+#sideGrip:hover::after,#sideGrip:focus-visible::after,#sumGrip:hover::after,#sumGrip:focus-visible::after,body.resizing .grip-on::after{opacity:.7}
 body.resizing{cursor:col-resize;user-select:none;-webkit-user-select:none}
 #jump{position:absolute;left:50%;transform:translateX(-50%);bottom:132px;z-index:6;box-shadow:0 8px 22px -6px rgba(0,0,0,.45)}#jump[hidden]{display:none}
 </style></head>
@@ -263,6 +264,7 @@ body.resizing{cursor:col-resize;user-select:none;-webkit-user-select:none}
     </div>
   </section>
   <aside id="sum" class="glass strong">
+    <div id="sumGrip" role="separator" aria-orientation="vertical" aria-label="Resize project panel" tabindex="0" title="Drag to resize the project panel · double-click to reset"></div>
     <div class="hd"><div class="segmented"><button id="pt-status" onclick="pTab('status')">📊 Status</button><button id="pt-sum" onclick="pTab('sum')">📋 Summary</button></div><span class="sp"></span><button class="btn sm ghost" id="sumcopy" onclick="copySum()" title="Copy the summary">⧉ Copy</button><button class="btn sm icon ghost" onclick="toggleSum(false)" title="Close">✕</button></div>
     <div id="pstatus"></div>
     <div id="psum" hidden>
@@ -350,24 +352,29 @@ function renderSide(){
   const names=act.map(i=>eng(i)?.name).filter(Boolean);$('chips').textContent=!names.length?'No engineer selected':tm?`Team: ${names[0]} leads → ${names.slice(1).join(', ')} work → ${names[0]} reviews`:`Replying: ${names.join(', ')} · @name to choose`;
 }
 
-// ── sidebar width (drag its right edge; remembered in this browser)
-(function(){
-  const KEY='aether-side-w',DEF=248,MIN=200,max=()=>Math.max(MIN,Math.min(720,innerWidth*0.6));
-  const set=(w,save)=>{w=Math.round(Math.max(MIN,Math.min(max(),w)));document.documentElement.style.setProperty('--side-w',w+'px');
-    if(save){try{localStorage.setItem(KEY,w)}catch(e){}}};
-  try{const v=+localStorage.getItem(KEY);if(v)set(v)}catch(e){}
-  const g=document.getElementById('sideGrip');if(!g)return;
-  const cur=()=>document.getElementById('side').getBoundingClientRect().width;
-  g.addEventListener('pointerdown',e=>{e.preventDefault();g.setPointerCapture(e.pointerId);document.body.classList.add('resizing');
+// ── resizable side panels (drag the edge; remembered in this browser; double-click resets)
+function makeResizer(gripId,panelId,cssVar,key,def,min,maxFrac,edge,otherId){
+  // never squeeze the chat below ~380px: the other side panel's width counts too
+  const other=()=>{const o=otherId&&document.getElementById(otherId);return o&&getComputedStyle(o).display!=='none'?o.getBoundingClientRect().width:0};
+  const max=()=>Math.max(min,Math.min(960,innerWidth*maxFrac,innerWidth-other()-420));
+  const set=(w,save)=>{w=Math.round(Math.max(min,Math.min(max(),w)));document.documentElement.style.setProperty(cssVar,w+'px');
+    if(save){try{localStorage.setItem(key,w)}catch(e){}}};
+  try{const v=+localStorage.getItem(key);if(v)set(v)}catch(e){}
+  const g=document.getElementById(gripId);if(!g)return;
+  const cur=()=>document.getElementById(panelId).getBoundingClientRect().width;
+  const sign=edge==='left'?-1:1;    // a panel on the right grows when its left edge moves left
+  g.addEventListener('pointerdown',e=>{e.preventDefault();g.setPointerCapture(e.pointerId);document.body.classList.add('resizing');g.classList.add('grip-on');
     const x0=e.clientX,w0=cur();
-    const mv=ev=>set(w0+ev.clientX-x0);
-    const up=ev=>{g.removeEventListener('pointermove',mv);g.removeEventListener('pointerup',up);g.removeEventListener('pointercancel',up);
-      document.body.classList.remove('resizing');set(cur(),true)};
+    const mv=ev=>set(w0+sign*(ev.clientX-x0));
+    const up=()=>{g.removeEventListener('pointermove',mv);g.removeEventListener('pointerup',up);g.removeEventListener('pointercancel',up);
+      document.body.classList.remove('resizing');g.classList.remove('grip-on');set(cur(),true)};
     g.addEventListener('pointermove',mv);g.addEventListener('pointerup',up);g.addEventListener('pointercancel',up)});
-  g.addEventListener('dblclick',()=>set(DEF,true));
-  g.addEventListener('keydown',e=>{if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.preventDefault();set(cur()+(e.key==='ArrowRight'?24:-24),true)}});
+  g.addEventListener('dblclick',()=>set(def,true));
+  g.addEventListener('keydown',e=>{if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.preventDefault();set(cur()+sign*(e.key==='ArrowRight'?24:-24),true)}});
   addEventListener('resize',()=>{if(cur()>max())set(max(),false)});
-})();
+}
+makeResizer('sideGrip','side','--side-w','aether-side-w',248,200,0.6,'right','sum');
+makeResizer('sumGrip','sum','--sum-w','aether-sum-w',360,280,0.6,'left','side');
 
 // ── sessions
 async function openSession(id){S.cur=S.sessions.find(s=>s.id===id);renderSide();renderMsgs(await api().load_session(id));PST=null;loadStatus()}
