@@ -53,6 +53,41 @@ def ssl_hint(url: str, exc: Exception) -> str:
         if url.startswith("https://") and "SSL" in str(exc) else ""
 
 
+MAX_CONTINUE = 3
+
+
+def stream_once(base: str, key: str, model: str, messages: list[dict]) -> tuple[str | None, str]:
+    """One streamed completion, echoed as it arrives. Returns (text, finish_reason); text None after an error event."""
+    body = {"model": model, "stream": True, "messages": messages}
+    text, finish = [], ""
+    with request(base, "/chat/completions", key, body, timeout=300) as r:
+        for raw in r:
+            line = raw.decode("utf-8", "replace").strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                ev = json.loads(data)
+            except ValueError:
+                continue
+            if ev.get("error"):
+                err = ev["error"]
+                out({"type": "result", "ok": False, "error": str(err.get("message") if isinstance(err, dict) else err)[:300]})
+                return None, "error"
+            for ch in ev.get("choices") or []:
+                d = ch.get("delta") or ch.get("message") or {}
+                think = d.get("reasoning_content") or d.get("reasoning")
+                if think:
+                    out({"type": "thought", "text": think})
+                if d.get("content"):
+                    text.append(d["content"])
+                    out({"type": "text", "text": d["content"]})
+                finish = ch.get("finish_reason") or finish
+    return "".join(text), finish
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", required=True)
@@ -68,30 +103,22 @@ def main() -> int:
                 out({"type": "result", "ok": False, "error": "No model set and the server listed none. Pick a model in the engineer's settings."})
                 return 1
             model = ids[0]
-        body = {"model": model, "stream": True, "messages": [{"role": "user", "content": prompt}]}
-        with request(args.base_url, "/chat/completions", key, body, timeout=300) as r:
-            for raw in r:
-                line = raw.decode("utf-8", "replace").strip()
-                if not line.startswith("data:"):
-                    continue
-                data = line[5:].strip()
-                if data == "[DONE]":
-                    break
-                try:
-                    ev = json.loads(data)
-                except ValueError:
-                    continue
-                if ev.get("error"):
-                    err = ev["error"]
-                    out({"type": "result", "ok": False, "error": str(err.get("message") if isinstance(err, dict) else err)[:300]})
-                    return 1
-                for ch in ev.get("choices") or []:
-                    d = ch.get("delta") or ch.get("message") or {}
-                    think = d.get("reasoning_content") or d.get("reasoning")
-                    if think:
-                        out({"type": "thought", "text": think})
-                    if d.get("content"):
-                        out({"type": "text", "text": d["content"]})
+        # Free providers cap reply length (often ~4k tokens). A plan or a file cut off mid-way used to arrive
+        # half-written (no task lines, broken JSON). When the reply stops at the limit, or inside an unclosed
+        # ``` block, ask the model to continue where it stopped, up to MAX_CONTINUE times.
+        messages = [{"role": "user", "content": prompt}]
+        full = ""
+        for attempt in range(1 + MAX_CONTINUE):
+            text, finish = stream_once(args.base_url, key, model, messages)
+            if text is None:
+                return 1
+            full += text
+            cut = finish == "length" or full.count("```") % 2 == 1
+            if not cut or not text.strip():
+                break
+            messages = [{"role": "user", "content": prompt}, {"role": "assistant", "content": full},
+                        {"role": "user", "content": "Your reply was cut off. Continue EXACTLY where it stopped (mid-word or "
+                                                    "mid-line if needed). Do not repeat anything and do not add any preamble."}]
         out({"type": "result", "ok": True, "error": None})
         return 0
     except urllib.error.HTTPError as exc:

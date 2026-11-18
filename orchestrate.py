@@ -102,14 +102,21 @@ class Assessment:
 def assess(text: str) -> Assessment:
     low = " ".join(text.lower().split())
     score, why = 18, []
-    for label, pts, pat in _FACTORS + _SIMPLE:
+    words = len(low.split())
+    # In a long written spec, words like "simple", "form" or "css" describe parts, not the size of the job.
+    for label, pts, pat in _FACTORS + (_SIMPLE if words <= 80 else []):
         if re.search(pat, low):
             score += pts
             why.append(f"{label} {pts:+d}")
-    words = len(low.split())
     if words > 120:
         score += min(15, (words - 120) // 20 + 5)
         why.append(f"long brief {words}w")
+    # A spec with many listed requirements is a project, whatever its wording: numbered or bulleted lines.
+    items = len(re.findall(r"^\s*(?:\d+[.)]|[-*•])\s+\S", text, re.M))
+    if items > 3:
+        pts = min(25, (items - 3) * 3)
+        score += pts
+        why.append(f"{items} listed requirements {pts:+d}")
     score = max(0, min(100, score))
     mode = "quick" if score <= TH["quick_max"] else "standard" if score <= TH["standard_max"] else "deep"
     return Assessment(score, mode, why)

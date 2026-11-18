@@ -50,6 +50,13 @@ IDLE_LIMIT = {API: 240}   # seconds without any output before an engineer counts
 IDLE_LIMIT_DEFAULT = 900  # CLIs can be quiet while their own tools run (npm install…)
 CONTEXT_MESSAGES = 10      # smaller prompts = faster replies
 MAX_MSG_CHARS = 1500
+# Team jobs: each engineer sees the user's request, the plan, a file listing and ITS OWN thread, not the last
+# few messages of everyone (with 10 engineers those were all someone else's `cat` output).
+OWN_THREAD_MESSAGES = 14
+OWN_MSG_CHARS = 4000
+TEAM_MAX_WORKERS = 4       # more parallel writers than this mostly wait for and overwrite each other
+VERIFY_ROUNDS = 4          # verify → fix → re-verify, at most this many verifications
+RUNAWAY_CHARS = 40_000     # a reply this long that is mostly repetition is cut before it floods the chat
 
 DEFAULT_CONFIG = {
     "engineers": [
@@ -143,7 +150,9 @@ def row_msg(r: sqlite3.Row) -> dict:
 
 # ───────────────────────────── engines ─────────────────────────────
 
-VERIFY_PY = str(Path(__file__).parent / ".venv" / "bin" / "python") + " " + str(Path(__file__).parent / "verify_web.py")
+_VENV_PY = Path(__file__).parent / ".venv" / "bin" / "python"
+PY_FOR_TOOLS = str(_VENV_PY) if _VENV_PY.exists() else sys.executable
+VERIFY_PY = PY_FOR_TOOLS + " " + str(Path(__file__).parent / "verify_web.py")
 
 
 def claude_args(mode: str, eng: dict, proxy: bool = False, verify: bool = False) -> list[str]:
@@ -513,9 +522,20 @@ VERIFY = (
     "You are the TEAM LEAD and the only one who signs off. Do NOT trust your teammates' claims — verify everything yourself with your tools:\n"
     "1. Find what was built (list the working directory).\n"
     "2. Run it for real. Pick a FREE port with `freeport 8000` (never assume 8000 is free) — or `aserve <dir>` for a static site — and start it in the background.\n"
-    f"3. For anything served over HTTP run: `{VERIFY_PY} <url>` (checks HTTP, missing files, browser console errors, blank page). "
+    f"3. For anything served over HTTP run: `{VERIFY_PY} <url>` — it loads the page in headless Chrome, reports errors, what is "
+    "on screen, dialogs left open, and clicks every button. Then test the features the user asked for with scripted steps: "
+    f"`{VERIFY_PY} <url> --no-clicks --steps '[{{\"click\": \"#add\"}}, {{\"expect\": \"#modal\", \"visible\": true}}, "
+    "{\"type\": [\"#title\", \"Test\"]}, {\"submit\": \"#form\"}, {\"expect\": \".card\", \"text\": \"Test\"}, {\"reload\": true}, "
+    "{\"expect\": \".card\", \"count\": 1}]'` (also: press KEY, drag [from, to], select [sel, value], eval JS + equals, wait MS; "
+    "use the real ids/classes from the HTML). Each ```run block is a separate shell: a server you start keeps running, but "
+    "`$(freeport 8000)` gives a NEW port each time — start it once with `aserve .` and use the URL it prints. "
+    "Aether may already have started the page for you: see AUTOMATIC CHECKS. "
     "For other code run its tests or run it with sample input.\n"
-    "4. Quote the real command output as evidence.\n"
+    "4. If there is a team plan, go through its Requirements list one by one: `✓ R1 …` or `✗ R1 …`, each with evidence "
+    "(the command you ran, or the file and the code that implements it). Check the pieces fit: every name one file uses from "
+    "another (functions, exports, element ids, paths) must exist there — grep for them. A missing requirement, placeholder or "
+    "mismatch is a FAIL.\n"
+    "5. Quote the real command output as evidence.\n"
     "End with exactly one line: `VERDICT: PASS` (everything demonstrably works), `VERDICT: FAIL` (say precisely what is broken) "
     "or `VERDICT: UNVERIFIED` (you were not allowed to run the checks — say which). "
     "After VERDICT: PASS give the user the final answer: URL / how to run, and what you tested. Never write PASS without evidence from commands you ran in this step.")
@@ -526,6 +546,7 @@ SUMMARY = (
     "use only what really happened in this session (the messages above) and never claim something works unless it was shown.\n"
     "Use exactly these headings:\n"
     "## Result\nOne or two lines: what was built or changed, and whether it works (say how it was checked).\n"
+    "## Requirements\nIf there was a plan: each requirement with ✓ (shown working), ✗ (missing/broken) or ? (not checked). Otherwise skip this heading.\n"
     "## Where\nThe folder and the main files.\n"
     "## How to run\nThe exact commands and/or URL.\n"
     "## Who did what\nOne line per engineer.\n"
@@ -572,6 +593,14 @@ class Api:
         self._outcome: dict[tuple[str, str], dict] = {}   # (session, engineer) → how its last run ended
         self._busy: dict[str, set[str]] = {}               # session → engineers running right now
         self._failed_turn: dict[str, set[str]] = {}        # session → engineers that failed during this turn
+        self._request: dict[str, str] = {}                 # session → the user's request for the current turn
+        self._turn_t0: dict[str, float] = {}               # session → when the current turn started
+        self._plan: dict[str, str] = {}                    # session → the lead's plan for the current turn
+        self._owners: dict[str, dict[str, str]] = {}       # session → {file path or dir/: engineer name}
+        self._cmd_seen: dict[tuple, tuple[str, str]] = {}  # (session, engineer, command) → (project state, time)
+        self._auto_url: dict[str, str] = {}                # session → URL Aether served the project at for checks
+        self._final: dict[str, dict] = {}                  # session → how the last verification ended
+        self._auto_cmds: dict[str, list[str]] = {}         # session → commands the automatic checks run
 
     # ── ui plumbing
     def emit(self, ev: dict) -> None:
@@ -1000,6 +1029,11 @@ class Api:
                 mentioned = [e["id"] for e in cfg["engineers"]]
             self._acted.discard(sid)
             self._failed_turn[sid] = set()
+            self._request[sid], self._turn_t0[sid] = text, time.time()
+            self._plan.pop(sid, None)
+            self._owners.pop(sid, None)
+            self._auto_url.pop(sid, None)
+            self._final.pop(sid, None)
             order = list(dict.fromkeys(mentioned)) or [i for i in st["active"] if i in engs]
             if not order:
                 self._post(sid, "system", "Aether", "No engineer selected. Pick one in the sidebar or use @name.")
@@ -1030,6 +1064,16 @@ class Api:
                 who, reply = self._run_covered(sid, rt.lead, cands, cfg, st, target, phase="build", directive=QUICK, what="build")
                 if st["mode"] in ("edit", "auto") and self._changed_something(sid) and sid not in self.stopped:
                     self._auto_verify(sid, who, reply, cfg, st, target)
+                    for rnd in (1, 2, 3):
+                        auto_ok, auto = self._auto_checks(sid, st, target)
+                        if auto:
+                            self._post(sid, "shell", "Aether checks", auto, {"phase": "verify", "shell": True})
+                            self._final[sid] = {"verdict": "FAIL" if auto_ok is False else "PASS", "auto_ok": auto_ok,
+                                                "fails": self._failed_checks(auto)}
+                        if auto_ok is not False or rnd == 3 or sid in self.stopped:
+                            break
+                        self._run_engineer(sid, who, cfg, st, target, phase="fix", directive=(
+                            f"{auto[-4000:]}\n\nThese checks FAILED. Fix the cause, re-run the failing check yourself and show the output. Be brief."))
                     self._summarize(sid, who, cands, cfg, st, target)
             self._learn(sid, cfg)
         finally:
@@ -1109,6 +1153,10 @@ class Api:
                 return eng, text
             self._post(sid, "system", "Team", f"Reassigned · {eng['name']} is unavailable ({why}) — {sub['name']} takes over the {what}.",
                        {"phase": phase or "work"})
+            own = self._owners.get(sid) or {}
+            for path, who in list(own.items()):
+                if who == eng["name"]:
+                    own[path] = sub["name"]
             takeover = (f"You are taking over from {eng['name']}, who stopped partway ({why}). Check the current state of "
                         "the files first (some work may already be done), then finish it.\n\n")
             eng = sub
@@ -1121,11 +1169,24 @@ class Api:
         def plan_prompt(ld: dict) -> str:
             roster = "\n".join(f"- {m['name']}: {m['role']}" for m in members if m["id"] != ld["id"] and not orch.is_down(m["id"])
                                and m["id"] not in self._failed_turn.get(sid, set()))
-            return (f"You are the TEAM LEAD for this request. Teammates:\n{roster}\n"
-                    "Write a short plan, then delegate by writing one line per teammate in exactly this form:\n"
-                    "@Name: the specific task for them\n"
-                    "Delegate by strengths (e.g. implementation vs review vs research). Do NOT do their work yourself now; "
-                    "you will review everything afterwards. If the request is trivial, answer it directly and delegate nothing.")
+            return (f"You are the TEAM LEAD for this request. Teammates:\n{roster}\n\n"
+                    "Teammates work IN PARALLEL and cannot talk to each other, so your plan is the contract they all build to. "
+                    "If the request is trivial (a question, a one-file change), answer or do it directly and delegate nothing. "
+                    "Otherwise write the plan with exactly these headings:\n"
+                    "## Goal\nOne line.\n"
+                    "## Requirements\nEVERY requirement in the user's request as a checklist `- R1: ...`, `- R2: ...` — nothing left out; "
+                    "the work is checked against this list.\n"
+                    "## Architecture\nThe full file layout; the technology and exact versions (CDN/package URLs that really exist); "
+                    "for every module/file: what it exports or exposes (exact function/class/element-id names and signatures) and what "
+                    "it uses from which other file; how the app is started (command, free port via `freeport 8000`).\n"
+                    "## Tasks\nOne line per teammate you use, in exactly this form:\n"
+                    "@Name: what to build | files: path/one.js, path/two.css\n"
+                    f"Every file has exactly ONE owner. Use only as many teammates as there are truly independent parts "
+                    f"(at most {TEAM_MAX_WORKERS}; leave the others out — they cover for anyone who fails). Give related files to the "
+                    "same person — above all, the page markup (HTML) and the script that drives it (ids, classes, events) belong "
+                    "to ONE person, because mismatches between them are the most common bug. "
+                    "Do NOT write any project files yourself now; you verify everything afterwards.\n"
+                    "## Acceptance checks\nThe exact commands that prove it works (tests, syntax checks, starting it, the URL to load).")
         t_plan = time.time()
 
         def assigned(text: str) -> dict:
@@ -1154,13 +1215,35 @@ class Api:
             # The earlier plan is still the best one we have, so the team works from it.
             plan, tasks = earlier, assigned(earlier)
             self._post(sid, "system", "Team", "Using the plan written earlier this turn", {"phase": "plan"})
+        if not tasks and not (len(plan) < 400 and not re.search(r"@\w+", plan)) and sid not in self.stopped:
+            self._post(sid, "system", "Team", f"{lead['name']}'s plan has no task lines — asking for them.", {"phase": "plan"})
+            lead, again = self._run_covered(sid, lead, members, cfg, st, target, lambda ld: plan_prompt(ld) + (
+                "\n\nYour plan above stopped before its `## Tasks` section, so nobody can start. Do not repeat the rest: write "
+                "ONLY the `## Tasks` lines (`@Name: what to build | files: …`, every file in your Architecture owned by exactly one "
+                "person) and the `## Acceptance checks`."), phase="plan", what="lead role")
+            if assigned(again):
+                plan = again if "## Requirements" in again else plan.rstrip() + "\n\n" + again
+                tasks = assigned(plan)
+        if len(tasks) > TEAM_MAX_WORKERS:
+            # Too many parallel writers make files that don't fit together. Fold the extra tasks into the first ones.
+            ids = list(tasks)
+            for k, extra in enumerate(ids[TEAM_MAX_WORKERS:]):
+                host = ids[k % TEAM_MAX_WORKERS]
+                tasks[host] = f"{tasks[host]}  ALSO: {tasks.pop(extra)}"
+            self._post(sid, "system", "Team", f"The plan used {len(ids)} people; merged it into {TEAM_MAX_WORKERS} tasks so the "
+                       "files are written by fewer hands and fit together.", {"phase": "plan"})
+        if tasks:
+            self._plan[sid] = plan
+            names = {m["id"]: m["name"] for m in members}
+            self._owners[sid] = self._parse_owners({names[i]: t for i, t in tasks.items() if i in names})
+            self._save_plan(sid, plan, st, target)
         if (self._outcome.get((sid, lead["id"])) or {}).get("failed") and not tasks:
             return                                   # nobody could lead; the reason is already posted
         mates = [m for m in members if m["id"] != lead["id"] and not orch.is_down(m["id"])
                  and m["id"] not in self._failed_turn.get(sid, set())]
         solo_lead = not tasks and len(plan) < 400 and not re.search(r"@\w+", plan)   # lead handled a small request itself
         # The lead works too when the plan gave it a part (e.g. it took over from a lead that planned and failed).
-        workers = [] if solo_lead else ([m for m in mates + [lead] if m["id"] in tasks] or mates)
+        workers = [] if solo_lead else ([m for m in mates + [lead] if m["id"] in tasks] or mates[:TEAM_MAX_WORKERS])
         if workers:
             self._post(sid, "system", "Team", "Work · " + ", ".join(m["name"] for m in workers), {"phase": "work"})
         done: list[dict] = []
@@ -1170,18 +1253,313 @@ class Api:
             task = tasks.get(m["id"], "Contribute your part to the request, complementing the plan.")
             who, _ = self._run_covered(sid, m, pool, cfg, st, target, phase="work", what=f"task “{task[:60]}”", directive=(
                 (f"Your part of the team plan: {task}\n" if m["id"] == lead["id"] else f"{lead['name']} (team lead) assigned you: {task}\n") +
-                "Do your part now with your tools if needed. Be brief. End with a 2-3 line summary of what you did/found."))
+                "Build it now, completely — no placeholders, TODOs or stubs. Follow the plan's Architecture exactly (same file "
+                "paths, exported names, element ids, versions) so your part fits the others'. Write ONLY the files you own. "
+                "The project file listing is above: do not re-list or re-read files you do not need. Before you finish, check "
+                "your own files (syntax check, run your tests or a quick smoke test) and show the output. "
+                "Other people's files may still be in progress: don't wait for them, don't re-read them repeatedly and never "
+                "build them yourself. As soon as your own files are written and checked, STOP: reply with only the summary and "
+                "no ```run or ```aether block. "
+                "End with a 2-3 line summary: what you built, which names other files rely on, anything left open."))
+            for _ in range(2):                        # an owner who stopped before writing all its files goes back
+                missing = self._missing_files(sid, who["name"], st, target)
+                if not missing or sid in self.stopped:
+                    break
+                self._post(sid, "system", "Team", f"{who['name']} has not written {', '.join(missing)} yet — sending it back.", {"phase": "work"})
+                who, _ = self._run_covered(sid, who, pool, cfg, st, target, phase="work", what=f"task “{task[:60]}”", directive=(
+                    f"You finished, but these files you own do not exist yet: {', '.join(missing)}. Write them now, complete "
+                    "(no stubs), following the plan's Architecture, then check them and end with your summary."))
             done.append(who)
-        threads = [threading.Thread(target=work, args=(m,)) for m in workers]   # teammates work in parallel
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+        # Teammates work in parallel, in waves of at most TEAM_MAX_WORKERS so they don't trip over each other.
+        for i in range(0, len(workers), TEAM_MAX_WORKERS):
+            threads = [threading.Thread(target=work, args=(m,)) for m in workers[i:i + TEAM_MAX_WORKERS]]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            if sid in self.stopped:
+                break
         if sid in self.stopped or st["mode"] == "chat":
             return
+        self._write_tests(sid, lead, mates, workers, pool, cfg, st, target)
         fixers = list({e["id"]: e for e in done}.values()) or [lead]
         self._verify(sid, lead, fixers, cfg, st, target, pool=[lead] + mates)
         self._summarize(sid, lead, [lead] + mates, cfg, st, target)
+
+    @staticmethod
+    def _parse_owners(tasks: dict[str, str]) -> dict[str, str]:
+        """{engineer name: task line} → {path: engineer name} from the `| files: a, b` part of each task."""
+        own: dict[str, str] = {}
+        for name, task in tasks.items():
+            m = re.search(r"\bfiles?\s*:\s*(.+)$", task, re.I)
+            if not m:
+                continue
+            for raw in re.split(r"[,;]\s*|\s+(?:and|&)\s+|\s{2,}", m.group(1)):
+                f = raw.strip().strip("`'\"*()[]").rstrip(".").strip()
+                if not f or "*" in f or " " in f or not ("." in f or f.endswith("/")):
+                    continue
+                key = f if f.endswith("/") else os.path.normpath(f)
+                own.setdefault(key, name)
+        return own
+
+    @staticmethod
+    def _failed_checks(auto: str) -> list[str]:
+        """'<check>: <first failure>' for each automatic check that failed."""
+        out = []
+        for block in (auto or "").split("\n\n$ ")[0:]:
+            head = block.split("\n", 1)[0].lstrip("$ ").strip()
+            if "[FAIL" not in block and "RESULT: FAIL" not in block:
+                continue
+            first = next((ln[6:].strip() for ln in block.splitlines() if ln.startswith("FAIL  ")), "")
+            if not first:   # a test runner: show its last meaningful line
+                first = next((ln.strip() for ln in reversed(block.splitlines()) if ln.strip() and not ln.startswith("[")), "")
+            out.append(f"{head.split('   (')[0][:70]}: {first[:160]}")
+        return out[:6]
+
+    def _missing_files(self, sid: str, name: str | None, st: dict, target: dict | None) -> list[str]:
+        """Planned files (owned by `name`, or by anyone when None) that are not in the project yet."""
+        if target is not None:
+            return []
+        root = Path(os.path.expanduser(eff_cwd(st, target))).resolve()
+        return sorted(p_ for p_, o in (self._owners.get(sid) or {}).items()
+                      if (name is None or o == name) and not p_.endswith("/") and p_ != self.E2E and not (root / p_).is_file())
+
+    def _owner_of(self, sid: str, path: str) -> str | None:
+        own = self._owners.get(sid) or {}
+        return own.get(path) or next((o for p, o in own.items() if p.endswith("/") and path.startswith(p)), None)
+
+    def _save_plan(self, sid: str, plan: str, st: dict, target: dict | None) -> None:
+        """Keep the plan in the project (.aether/PLAN.md) so it outlives the chat window and later turns can read it."""
+        if target is not None:
+            return
+        try:
+            d = Path(os.path.expanduser(eff_cwd(st, target))).resolve() / ".aether"
+            d.mkdir(exist_ok=True)
+            (d / "PLAN.md").write_text(f"# Team plan\n\nRequest:\n\n{self._request.get(sid, '')}\n\n---\n\n{plan}\n")
+        except OSError:
+            pass
+
+    SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next", ".aether", ".cache", "target"}
+
+    def _listing(self, st: dict, target: dict | None, limit: int = 150) -> str:
+        """Files in the project with sizes, so engineers don't spend turns on `ls`/`cat` just to see what exists."""
+        try:
+            if target is not None:
+                prune = " -o ".join(f"-name {d}" for d in sorted(self.SKIP_DIRS))
+                r = subprocess.run(ssh_argv(target, f"{remote_cd(eff_cwd(st, target))} && find . \\( {prune} \\) -prune -o -type f -print | head -{limit}"),
+                                   capture_output=True, text=True, timeout=20, env=ENV)
+                rows = [ln[2:] for ln in r.stdout.splitlines() if ln.startswith("./")]
+            else:
+                base = Path(os.path.expanduser(eff_cwd(st, target))).resolve()
+                if base == Path.home().resolve():
+                    return ""
+                rows = []
+                for dirpath, dirs, files in os.walk(base):
+                    dirs[:] = sorted(d for d in dirs if d not in self.SKIP_DIRS)
+                    for fn in sorted(files):
+                        fp_ = Path(dirpath) / fn
+                        try:
+                            rows.append(f"{fp_.relative_to(base)}  ({fp_.stat().st_size} bytes)")
+                        except OSError:
+                            pass
+                        if len(rows) >= limit:
+                            break
+                    if len(rows) >= limit:
+                        break
+            return "\n".join(rows) if rows else "(empty)"
+        except Exception:
+            return ""
+
+    def _stop_project_servers(self, st: dict, target: dict | None) -> list[str]:
+        """Stop servers left running from the project folder by earlier steps, so verification starts clean and
+        the user isn't left with stray processes on random ports. Local projects only."""
+        if target is not None or not shutil.which("lsof"):
+            return []
+        proj = str(Path(os.path.expanduser(eff_cwd(st, target))).resolve())
+        if proj == str(Path.home().resolve()):
+            return []
+        stopped = []
+        try:
+            out = subprocess.run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"], capture_output=True, text=True, timeout=15).stdout
+            pid, ports = None, {}
+            for ln in out.splitlines():
+                if ln.startswith("p"):
+                    pid = int(ln[1:])
+                elif ln.startswith("n") and pid:
+                    ports.setdefault(pid, set()).add(ln.rsplit(":", 1)[-1])
+            for pid, prt in ports.items():
+                if pid == os.getpid():
+                    continue
+                cwd = subprocess.run(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"], capture_output=True, text=True, timeout=10).stdout
+                cwd = next((x[1:] for x in cwd.splitlines() if x.startswith("n")), "")
+                if cwd == proj or cwd.startswith(proj + "/"):
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                        stopped.append(f"pid {pid} (port {', '.join(sorted(prt))})")
+                    except OSError:
+                        pass
+        except Exception:
+            pass
+        return stopped
+
+    WEB_DIRS = ("", "public", "dist", "docs", "site", "web", "www", "app", "frontend", "client")
+    E2E = ".aether/e2e.json"
+
+    def _web_root(self, st: dict, target: dict | None) -> Path | None:
+        if target is not None:
+            return None
+        root = Path(os.path.expanduser(eff_cwd(st, target))).resolve()
+        return next((root / d for d in self.WEB_DIRS if (root / d / "index.html").is_file()), None)
+
+    def _write_tests(self, sid: str, lead: dict, mates: list[dict], workers: list[dict], pool: list[dict], cfg: dict,
+                     st: dict, target: dict | None) -> None:
+        """A page's features are only proven by using them. After the builders, an agent who did not build it writes
+        browser acceptance steps for every UI requirement (.aether/e2e.json); Aether runs them in every verification."""
+        if self._web_root(st, target) is None or sid in self.stopped:
+            return
+        busy = {w["id"] for w in workers}
+        tester = next((m for m in mates if m["id"] not in busy and not orch.is_down(m["id"])
+                       and m["id"] not in self._failed_turn.get(sid, set())), lead)
+        self._owners.setdefault(sid, {})[self.E2E] = tester["name"]
+        self._post(sid, "system", "Team", f"Test · {tester['name']} writes browser acceptance tests for the requirements", {"phase": "work"})
+        usage = ('[{"click": "#new-card-btn"}, {"expect": "#card-modal", "visible": true}, {"submit": "#card-form"}, '
+                 '{"expect": "#card-title-error", "visible": true}, {"type": ["#card-title", "Buy milk"]}, {"submit": "#card-form"}, '
+                 '{"expect": "#card-modal", "visible": false}, {"expect": ".card", "text": "Buy milk"}, {"reload": true}, '
+                 '{"expect": ".card", "text": "Buy milk"}, {"press": "n", "on": "body"}, {"press": "Escape"}, '
+                 '{"drag": [".card", ".column:last-child"]}, {"select": ["#filter", "high"]}, {"expect": ".card", "count": 1}, '
+                 '{"eval": "localStorage.length > 0", "equals": true}, {"wait": 300}]')
+        self._run_covered(sid, tester, pool, cfg, st, target, phase="test", what="acceptance tests", directive=(
+            "You are the TESTER. The builders have finished; you did not build this, so test it like a user would. Write the file "
+            f"`{self.E2E}`: ONE JSON list of browser steps that check EVERY requirement in the plan that a user can see or do "
+            "(open/close dialogs, create/edit/delete, validation messages, search/filters, keyboard shortcuts, persistence after "
+            "reload, theme…). Steps run in order in one real page (headless Chrome) and each must pass:\n"
+            f"{usage}\n"
+            "Actions: click SEL, type [SEL, text], select [SEL, value], press KEY (+ \"on\": SEL), submit FORM, drag [from, to], "
+            "wait MS, reload. Checks: expect SEL (+ \"visible\": true/false, \"text\": \"…\", \"count\": N), eval JS (+ \"equals\": value).\n"
+            "Read index.html and the scripts first and use their REAL ids and classes. Put an expect after every action so a "
+            "broken feature fails. Pure JSON: no comments, no trailing commas. Start the page with `aserve .` (once) and run your "
+            f"steps against the URL it prints: `{VERIFY_PY} <url> --no-clicks --steps {self.E2E}`. "
+            "If a step fails because the APP is broken, keep the step (that is a real bug for the builders) and list it; fix a "
+            "step only when the step itself is wrong. Do not change any other file. End with: how many steps, which failed and why."))
+        for _ in range(2):
+            why = self._e2e_problem(st, target)
+            if not why or sid in self.stopped:
+                break
+            self._post(sid, "system", "Team", f"{tester['name']}: {why} — sending it back.", {"phase": "work"})
+            tester, _ = self._run_covered(sid, tester, pool, cfg, st, target, phase="test", what="acceptance tests", directive=(
+                f"{why}. Write `{self.E2E}` now with one ```aether block: a JSON list of at least {self.E2E_MIN} steps that check every "
+                "user-visible requirement, using the real ids/classes in index.html and the scripts. Then run it as described above."))
+
+    E2E_MIN = 8
+
+    def _e2e_problem(self, st: dict, target: dict | None) -> str | None:
+        root = Path(os.path.expanduser(eff_cwd(st, target))).resolve()
+        f = root / self.E2E
+        if not f.is_file():
+            return f"{self.E2E} was not written"
+        try:
+            steps = json.loads(f.read_text())
+        except ValueError as exc:
+            return f"{self.E2E} is not valid JSON ({str(exc)[:80]})"
+        if not isinstance(steps, list) or len(steps) < self.E2E_MIN:
+            return f"{self.E2E} has {len(steps) if isinstance(steps, list) else 0} steps; it needs at least {self.E2E_MIN} covering the requirements"
+        return None
+
+
+
+    def _auto_checks(self, sid: str, st: dict, target: dict | None) -> tuple[bool | None, str]:
+        """Checks Aether runs ITSELF, so a model can't talk its way past them: the project's tests, a Python compile
+        check, and a real-browser check (verify_web.py) of a static site. Returns (all passed?, report);
+        (None, "") when there is nothing it knows how to check, or the project is on another machine."""
+        if target is not None:
+            return None, ""
+        root = Path(os.path.expanduser(eff_cwd(st, target))).resolve()
+        if root == Path.home().resolve() or not root.is_dir():
+            return None, ""
+        report, ok, ran = [], True, False
+
+        def run(cmd: str, timeout: int = 240) -> tuple[int, str]:
+            try:
+                r = subprocess.run(["/bin/bash", "-lc", cmd], cwd=root, capture_output=True, text=True, timeout=timeout, env=ENV)
+                return r.returncode, (r.stdout + r.stderr)
+            except subprocess.TimeoutExpired:
+                return 124, f"[stopped after {timeout}s]"
+
+        files = [f for f in root.rglob("*") if f.is_file() and not (set(f.relative_to(root).parts) & self.SKIP_DIRS)]
+        rel = [str(f.relative_to(root)) for f in files]
+        tests = []
+        try:
+            scripts = json.loads((root / "package.json").read_text()).get("scripts", {}) if (root / "package.json").exists() else {}
+        except ValueError:
+            scripts = {}
+        if scripts.get("test") and "no test specified" not in scripts["test"] and not scripts["test"].strip().startswith("node --test"):
+            tests.append("npm test --silent" if (root / "node_modules").is_dir() or "node --test" in scripts["test"] else "npm install --silent && npm test --silent")
+        elif tfiles := sorted(r for r in rel if re.search(r"\.(test|spec)\.[cm]?js$|(^|/)(tests?|__tests__)/[^/]+\.[cm]?js$", r)):
+            # Name the files: `node --test tests/` treats the folder as a file on newer Node versions.
+            tests.append("node --test " + " ".join(shlex.quote(t) for t in tfiles[:60]))
+        py = [r for r in rel if r.endswith(".py")]
+        if py:
+            tests.append("python3 -m compileall -q " + " ".join(sorted({r.split("/")[0] for r in py})[:20]))
+            if any(re.search(r"(^|/)test_[^/]*\.py$|_test\.py$", r) for r in py):
+                uses_pytest = any("import pytest" in (root / r).read_text(errors="replace") for r in py if "test" in r)
+                tdir = next((d for d in ("tests", "test") if (root / d).is_dir()), ".")
+                tests.append("python3 -m pytest -q" if uses_pytest and shutil.which("pytest") else f"python3 -m unittest discover -s {tdir}")
+        self._auto_cmds[sid] = list(tests)
+        for cmd in tests:
+            ran = True
+            code, out = run(cmd)
+            ok &= code == 0
+            report.append(f"$ {cmd}\n{self._clip(out.strip(), 2500, 1500)}\n[{'PASS' if code == 0 else 'FAIL'}: exit {code}]")
+        planned = [p_ for p_ in (self._owners.get(sid) or {}) if not p_.endswith("/") and p_ != self.E2E]
+        if planned:
+            ran = True
+            missing = self._missing_files(sid, None, st, target)
+            stubs = []
+            for p_ in planned:
+                f = root / p_
+                if f.is_file() and f.suffix in (".js", ".mjs", ".ts", ".tsx", ".jsx", ".py", ".go", ".rs", ".java", ".rb", ".php"):
+                    txt = f.read_text(errors="replace")
+                    if re.search(r"(?://|#)\s*TODO\b|not implemented|NotImplementedError|placeholder implementation", txt, re.I):
+                        stubs.append(p_)
+            ok &= not missing and not stubs
+            report.append("$ deliverables: every file in the plan exists and is not a stub\n"
+                          + "".join(f"FAIL  {p_} is in the plan but was never written\n" for p_ in missing)
+                          + "".join(f"FAIL  {p_} still has TODO / not-implemented parts\n" for p_ in stubs)
+                          + (f"[FAIL]" if missing or stubs else f"OK    all {len(planned)} planned files are there\n[PASS]"))
+        if any(r.endswith((".js", ".mjs", ".cjs", ".jsx", ".html")) for r in rel):
+            ran = True
+            try:
+                import contract_check
+                problems = contract_check.check(root)
+            except Exception as exc:
+                problems = []
+                report.append(f"(contract check could not run: {exc})")
+            ok &= not problems
+            report.append("$ contract check: imports vs exports, referenced files, element ids\n" +
+                          ("\n".join("FAIL  " + x for x in problems[:25]) or "OK    all match") +
+                          f"\n[{'FAIL' if problems else 'PASS'}]")
+        web = next((root / d for d in self.WEB_DIRS if (root / d / "index.html").is_file()), None)
+        if web is not None:
+            ran = True
+            port = fp.first_free(8000)
+            srv = subprocess.Popen([sys.executable, "-m", "http.server", str(port), "--bind", "0.0.0.0"], cwd=web,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            time.sleep(0.8)
+            url = f"http://127.0.0.1:{port}/"
+            e2e = root / self.E2E
+            steps = f" --steps {shlex.quote(str(e2e))}" if e2e.is_file() else ""
+            if self.E2E in (self._owners.get(sid) or {}) and (why := self._e2e_problem(st, target)):
+                ok = False
+                report.append(f"$ acceptance tests\nFAIL  {why} — features can't be shown to work without them\n[FAIL]")
+            code, out = run(f"{VERIFY_PY} {url}{steps}", timeout=300)
+            self._auto_cmds.setdefault(sid, []).append(f"{VERIFY_PY} {url}" + (f" --steps {self.E2E}" if steps else ""))
+            ok &= code == 0
+            report.append(f"$ verify_web {url}{' --steps ' + self.E2E if steps else ''}   (served from {web.relative_to(root) or '.'}; still running, pid {srv.pid})\n"
+                          f"{self._clip(out.strip(), 3000, 1000)}")
+            self._auto_url[sid] = url
+        if not ran:
+            return None, ""
+        return ok, "AUTOMATIC CHECKS (run by Aether itself, not by a model — these results are facts):\n\n" + "\n\n".join(report)
 
     def _phase_replies(self, sid: str, phase: str, since: float) -> list[tuple[str, str]]:
         """(author, text) of the engineers' replies in `phase` since `since`, oldest first."""
@@ -1202,7 +1580,22 @@ class Api:
         if sid in self.stopped:
             return
         self._post(sid, "system", "Team", f"Summary · {lead['name']} wraps up", {"phase": "summary"})
-        self._run_covered(sid, lead, pool, cfg, st, target, SUMMARY, phase="summary", what="summary")
+        url = self._auto_url.get(sid)
+        extra = f"\nAether is serving the project at {url} (on the machine where it runs); give that URL in How to run." if url else ""
+        fin = self._final.get(sid) or {}
+        failed = fin.get("verdict") == "FAIL" or fin.get("auto_ok") is False
+        if failed:
+            extra += ("\nIMPORTANT: the final verification FAILED" + (":\n" + "\n".join(fin.get("fails") or []) if fin.get("fails") else ".") +
+                      "\nSay so in Result, mark the affected requirements ✗ (or ? when unchecked), and list these failures first under Open issues.")
+        self._run_covered(sid, lead, pool, cfg, st, target, SUMMARY + extra, phase="summary", what="summary")
+        if fin:
+            if failed:
+                self._post(sid, "system", "Aether", "Final check: FAILED — the work is not finished. " +
+                           (" · ".join(fin.get("fails") or [])[:700] or "See the verification above.") +
+                           " Ask the team to continue (e.g. \"fix the failing checks\") or fix it by hand.", {"phase": "summary"})
+            else:
+                self._post(sid, "system", "Aether", "Final check: PASSED" + (" (Aether's automatic checks and the lead's verification)."
+                           if fin.get("auto_ok") else " (the lead's verification)."), {"phase": "summary"})
 
     URL_RE = re.compile(r"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\d{1,3}(?:\.\d{1,3}){3}):\d+[^\s)\]>\"'`*]*")
 
@@ -1228,7 +1621,7 @@ class Api:
                     "and report that URL. Do not stop the other program."))
                 continue
             try:
-                r = subprocess.run([str(Path(__file__).parent / ".venv" / "bin" / "python"), str(Path(__file__).parent / "verify_web.py"), url],
+                r = subprocess.run([PY_FOR_TOOLS, str(Path(__file__).parent / "verify_web.py"), url],
                                    capture_output=True, text=True, timeout=90, env=ENV)
                 out, ok = (r.stdout + r.stderr).strip(), r.returncode == 0
             except Exception as exc:
@@ -1267,31 +1660,84 @@ class Api:
         return sid in self._acted
 
     def _verify(self, sid: str, lead: dict, fixers: list[dict], cfg: dict, st: dict, target: dict | None, pool: list[dict] | None = None) -> None:
-        """The lead tests the work for real (another engineer covers if the lead is down). One repair round, only on an explicit FAIL."""
+        """The lead tests the work for real (another engineer covers if the lead is down). Repair rounds on an explicit FAIL,
+        up to VERIFY_ROUNDS verifications; the fixers get the findings themselves, not "read above"."""
         pool = pool or [lead, *fixers]
-        for rnd in (1, 2):
+        for rnd in range(1, VERIFY_ROUNDS + 1):
+            stray = self._stop_project_servers(st, target)
+            if stray:
+                self._post(sid, "system", "Aether", "Stopped servers left running by earlier steps: " + ", ".join(stray), {"phase": "verify"})
             if orch.is_down(lead["id"]) or lead["id"] in self._failed_turn.get(sid, set()):
                 lead = self._substitute(sid, pool, set()) or lead
+            auto_ok, auto = self._auto_checks(sid, st, target) if st["mode"] in ("edit", "auto") else (None, "")
+            if auto:
+                self._post(sid, "shell", "Aether checks", auto, {"phase": "verify", "shell": True})
             self._post(sid, "system", "Team", f"Verify · {lead['name']} tests the work" + (" (re-check)" if rnd > 1 else ""), {"phase": "verify"})
-            lead, out = self._run_covered(sid, lead, pool, cfg, st, target, VERIFY, phase="verify", what="verification")
+            directive = VERIFY + (f"\n\n{auto}\n\nIf an automatic check FAILED, your verdict is FAIL: find the cause in the code and "
+                                  "name the file and the fix." if auto else "")
+            lead, out = self._run_covered(sid, lead, pool, cfg, st, target, directive, phase="verify", what="verification")
             found = re.findall(r"VERDICT:\s*(PASS|FAIL|UNVERIFIED)", out)
             verdict = found[-1] if found else "UNVERIFIED"          # no marker is not a failure — nothing to repair
+            if auto_ok is False and verdict != "FAIL":
+                self._post(sid, "system", "Aether", f"{lead['name']} said {verdict}, but Aether's automatic checks failed — "
+                           "treating it as FAIL.", {"phase": "verify"})
+                verdict = "FAIL"
+                out = auto + "\n\n" + out
+            elif auto_ok is False:
+                out = auto + "\n\n" + out
             tools = (self._last.get(sid) or {}).get("tools") or []
             if tools and not any(t.get("state") == "done" for t in tools) and verdict == "FAIL":
                 verdict = "UNVERIFIED"                               # every command was refused: that is a permission issue, not a bug
                 self._post(sid, "system", "Aether", f"{lead['name']} could not run any command in {st['mode']} mode, so nothing was verified. Switch the mode to Auto (or approve its command requests) and ask again.")
+            self._final[sid] = {"verdict": verdict, "auto_ok": auto_ok, "fails": self._failed_checks(auto)}
             if verdict != "FAIL" or sid in self.stopped:
                 return
-            if rnd == 2:
-                self._post(sid, "system", "Team", "Still failing after one repair round — handing back with the failures listed above.", {"phase": "verify"})
+            if rnd == VERIFY_ROUNDS:
+                self._post(sid, "system", "Team", f"Still failing after {VERIFY_ROUNDS - 1} repair rounds — handing back with the failures listed above.", {"phase": "verify"})
                 return
-            self._post(sid, "system", "Team", "Fix · repairing what the lead found", {"phase": "work"})
-            threads = [threading.Thread(target=lambda m=m: self._run_covered(sid, m, pool, cfg, st, target, phase="fix", what="fix", directive=(
-                f"{lead['name']} tested the work and it FAILED — read the findings above. Fix the problems in your area, "
-                "then re-run the failing check yourself and show the output. Be brief."))) for m in fixers
+            findings = out[-5000:]
+            # Send each failure to whoever owns the file it names, so nobody answers "not my file" and nobody idles.
+            own = self._owners.get(sid) or {}
+            by_name = {m["name"]: m for m in pool}
+            named = [o for path, o in own.items() if not path.endswith("/") and path != self.E2E
+                     and re.search(rf"(?<![\w/.-]){re.escape(path)}(?![\w-])", findings)]
+            # A failing browser step names ids/classes, not files: the owners of the files that contain them fix it.
+            step_fails = [ln for ln in findings.splitlines() if ln.startswith("FAIL") and "step " in ln]
+            sels = set(re.findall(r"[#.]([A-Za-z][\w-]{2,})", " ".join(step_fails)))
+            if sels:
+                root = Path(os.path.expanduser(eff_cwd(st, target))).resolve()
+                for path, o in own.items():
+                    f = root / path
+                    if path != self.E2E and f.is_file() and f.suffix in (".html", ".js", ".mjs", ".css", ".jsx", ".ts", ".tsx"):
+                        txt = f.read_text(errors="replace")
+                        if any(x in txt for x in sels):
+                            named.append(o)
+            targeted = [by_name[n] for n in dict.fromkeys(named) if n in by_name and not orch.is_down(by_name[n]["id"])]
+            # Several people fixing at once undo each other (one renames the ids in the HTML, another in the script).
+            # One integrator per round fixes everything; it rotates through the owners of the failing files.
+            cands = targeted or [m for m in fixers if not orch.is_down(m["id"])] or [lead]
+            fixers = [cands[(rnd - 1) % len(cands)]]
+            recheck = [c for c in self._auto_cmds.get(sid, []) if "verify_web" not in c]
+            recheck.append(f"{PY_FOR_TOOLS} {Path(__file__).parent / 'contract_check.py'} .")
+            recheck += [c for c in self._auto_cmds.get(sid, []) if "verify_web" in c]
+            again_cmd = ("Then run ALL of these (not only the one that failed — a fix must not break the rest) and show the output; "
+                         "the job only passes when every one passes:\n" +
+                         "\n".join(f"  {c}" for c in recheck) + "\n") if recheck else "Then re-run the failing check yourself and show the output.\n"
+            self._post(sid, "system", "Team", f"Fix · {', '.join(m['name'] for m in fixers)} repair what failed (round {rnd})", {"phase": "work"})
+
+            def fix_directive(m):
+                mine = sorted(p_ for p_, o in own.items() if o == m["name"])
+                return (f"You are the INTEGRATOR for this repair round: the work was tested and it FAILED. The findings:\n\n{findings}\n\n"
+                        + (f"(You wrote: {', '.join(mine)}.) " if mine else "")
+                        + "Fix ALL of these problems yourself, in any file — nobody else is changing files now. Make the files agree "
+                        "with the plan's Architecture (the contract); where it says nothing, change the fewest files. Read the files "
+                        "involved before you edit them, and write each changed file complete. Do not edit .aether/e2e.json unless a step "
+                        "is plainly invalid. Unit tests passing is not enough: the failing checks must pass. " + again_cmd + "Be brief.")
+            threads = [threading.Thread(target=lambda m=m: self._run_covered(sid, m, pool, cfg, st, target, phase="fix", what="fix",
+                directive=fix_directive(m))) for m in fixers
                 if not orch.is_down(m["id"])] or [threading.Thread(target=lambda: self._run_covered(
                     sid, lead, pool, cfg, st, target, phase="fix", what="fix",
-                    directive="Your test FAILED — read the findings above. Fix the problems, then re-run the failing check and show the output. Be brief."))]
+                    directive=f"Your test FAILED. The findings:\n\n{findings}\n\nFix the problems, then re-run the failing check and show the output. Be brief."))]
             for t in threads:
                 t.start()
             for t in threads:
@@ -1351,10 +1797,43 @@ class Api:
         self.emit({"t": "message", "sid": sid, "message": {"id": mid, "role": role, "author": author,
                                                           "content": content, "meta": meta or {}}})
 
-    def _prompt(self, sid: str, eng: dict, cfg: dict, st: dict, target: dict | None, directive: str = "", proxy: bool = False) -> str:
+    def _history(self, sid: str, eng: dict, phase: str) -> tuple[list[dict], int]:
+        """Which past messages an engineer sees, and how much of each.
+        - work/fix/build in a team job: its own replies and the output of its own commands and file writes.
+        - verify/summary: every engineer's latest reply this turn plus the latest messages.
+        - otherwise (chat, plan): the last CONTEXT_MESSAGES messages, as before."""
+        team_job = sid in self._turn_t0 and phase in ("work", "fix", "build", "test", "verify", "summary")
         with db() as c:
-            hist = [row_msg(r) for r in c.execute(
-                "SELECT * FROM messages WHERE session_id=? ORDER BY ts DESC LIMIT ?", (sid, CONTEXT_MESSAGES))][::-1]
+            if not team_job:
+                return [row_msg(r) for r in c.execute("SELECT * FROM messages WHERE session_id=? ORDER BY ts DESC LIMIT ?",
+                                                      (sid, CONTEXT_MESSAGES))][::-1], MAX_MSG_CHARS
+            rows = [row_msg(r) for r in c.execute("SELECT * FROM messages WHERE session_id=? AND ts>=? ORDER BY ts",
+                                                  (sid, self._turn_t0[sid]))]
+        rows = [m for m in rows if m["role"] in ("assistant", "shell")]
+        if phase == "build":
+            # A single engineer doing the whole job: also show the conversation before this request (follow-ups).
+            with db() as c:
+                prior = [row_msg(r) for r in c.execute("SELECT * FROM messages WHERE session_id=? AND ts<? AND role IN ('user','assistant') "
+                                                       "ORDER BY ts DESC LIMIT 6", (sid, self._turn_t0[sid]))][::-1]
+            mine = [m for m in rows if (m["role"] == "assistant" and m["author"] == eng["name"])
+                    or (m["role"] == "shell" and m["meta"].get("by") == eng["name"])]
+            return prior + mine[-OWN_THREAD_MESSAGES:], OWN_MSG_CHARS
+        if phase in ("work", "fix", "test"):
+            mine = [m for m in rows if (m["role"] == "assistant" and m["author"] == eng["name"])
+                    or (m["role"] == "shell" and m["meta"].get("by") == eng["name"])]
+            return mine[-OWN_THREAD_MESSAGES:], OWN_MSG_CHARS
+        latest = {}
+        for m in rows:
+            if m["role"] == "assistant" and m["meta"].get("phase") in ("work", "fix", "build"):
+                latest[m["author"]] = m
+        tail = rows[-12:]
+        keep = [m for m in latest.values() if m not in tail] + tail
+        return sorted(keep, key=lambda m: m["ts"]), 1800
+
+    def _prompt(self, sid: str, eng: dict, cfg: dict, st: dict, target: dict | None, directive: str = "", proxy: bool = False,
+                phase: str = "") -> str:
+        hist, max_chars = self._history(sid, eng, phase)
+        with db() as c:
             others = c.execute("SELECT title, summary FROM sessions WHERE id!=? AND archived=0 ORDER BY updated DESC LIMIT 6", (sid,)).fetchall()
         team = ", ".join(f'{e["name"]} ({e["role"]})' for e in cfg["engineers"] if e["id"] != eng["id"]) or "none"
         where = f'on {target["user"]}@{target["host"]} (SSH)' if target else "on the user's Mac"
@@ -1369,8 +1848,10 @@ class Api:
                           f"say so and tell the user to switch to Auto mode.\n")
         mem = "\n".join(f"- {m['text']}" for m in self.list_memory()[-60:]) or "(empty)"
         lines = []
-        for m in hist:
-            body = m["content"][:MAX_MSG_CHARS]
+        for i, m in enumerate(hist):
+            # In an agent's own thread the latest few outputs come whole (a file it just read), older ones shorter.
+            lim = 10_000 if max_chars == OWN_MSG_CHARS and i >= len(hist) - 3 else max_chars
+            body = m["content"][:lim] + (" […cut]" if len(m["content"]) > lim else "")
             if m["role"] == "user":
                 lines.append(f"[User]: {body}")
             elif m["role"] == "assistant":
@@ -1385,8 +1866,29 @@ class Api:
             f"If you learn a durable fact worth keeping across sessions, add a line `REMEMBER: <fact>` at the end.\n\n"
             f"Shared memory:\n{mem}\n\n"
             f"Other recent sessions: {'; '.join(r['title'] + (' — ' + r['summary'] if r['summary'] else '') for r in others) or 'none'}\n\n"
-            f"Conversation so far:\n" + "\n\n".join(lines) + f"\n\n{directive or 'Reply now as ' + eng['name'] + '.'}"
+            f"{self._pinned(sid, eng, st, target, phase)}"
+            f"{'Your work so far (your replies and the output of your own commands):' if phase in ('work', 'fix', 'build', 'test') and sid in self._turn_t0 else 'Conversation so far:'}\n"
+            + "\n\n".join(lines) + f"\n\n{directive or 'Reply now as ' + eng['name'] + '.'}"
         )
+
+    def _pinned(self, sid: str, eng: dict, st: dict, target: dict | None, phase: str) -> str:
+        """Blocks every engineer keeps seeing however long the job runs: the request, the plan, its files, the project."""
+        if not phase or phase == "chat":
+            return ""
+        out = []
+        req = self._request.get(sid, "")
+        if req:
+            out.append(f"THE USER'S REQUEST (the whole job; every requirement counts):\n{req[:12000]}")
+        plan = self._plan.get(sid)
+        if plan and phase != "plan":
+            out.append(f"THE TEAM PLAN (the contract everyone builds to):\n{plan[:9000]}")
+        mine = sorted(p for p, o in (self._owners.get(sid) or {}).items() if o == eng["name"])
+        if mine and phase in ("work", "fix", "test"):
+            out.append("FILES YOU OWN: " + ", ".join(mine))
+        listing = self._listing(st, target) if st["mode"] in ("edit", "auto", "plan") else ""
+        if listing:
+            out.append(f"PROJECT FILES RIGHT NOW (folder {eff_cwd(st, target)}):\n{listing}")
+        return "\n\n".join(out) + "\n\n" if out else ""
 
     def _spawn(self, sid: str, argv: list[str], cwd: str | None, stdin: str | None, extra_env: dict | None = None):
         p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -1408,7 +1910,7 @@ class Api:
         one script, so heredocs survive. API engineers do all their work this way, so they get more rounds than CLIs."""
         text = self._run_once(sid, eng, cfg, st, target, directive, phase)
         retold, acted, idle_retold = 0, False, False
-        for _ in range(12 if eng["provider"] == API else 3):
+        for _ in range({"plan": 3, "fix": 6}.get(phase, 12) if eng["provider"] == API else 3):
             brokered = phase != "summary" and (st["mode"] in ("plan", "edit") or (eng["provider"] == API and st["mode"] == "auto"))
             block = aether_block(text) if brokered else {}
             files = [f for f in (block.get("files") or []) if isinstance(f, dict)][:20]
@@ -1426,15 +1928,33 @@ class Api:
                     continue
                 # Free models sometimes answer a build with a stray word ("hi") and no action, which also ended the
                 # job with nothing built and no summary. A doing turn that has not run or written anything yet gets one nudge.
-                if brokered and phase in ("build", "work", "fix") and not acted and not idle_retold:
+                if brokered and phase in ("build", "work", "fix", "test") and not acted and not idle_retold:
                     idle_retold = True
                     self._post(sid, "system", "Aether", f"{eng['name']} replied without running or writing anything — asking it to do the task.")
                     text = self._run_once(sid, eng, cfg, st, target, phase=phase, directive=self.NOTHING_DONE)
                     continue
                 break
             acted = True
-            results = [self._write_files(sid, files, st, target)] if files else []
+            results = []
+            if phase == "plan":
+                # The lead plans; the team builds. Free models like to start building alone here, which leaves the
+                # teammates with nothing to do and the lead debugging by itself. Only looking around is allowed.
+                if files:
+                    results.append("✕ files not written — this is the planning step. Put the work in the plan's Tasks; "
+                                   "teammates write the files next.")
+                    files = []
+                ro = [c for c in cmds if self._read_only(c)]
+                results += [f"$ {c}\n[not run] planning step: only read-only commands (ls, cat, grep, find…)." for c in cmds if c not in ro]
+                cmds = ro
+            if files:
+                results.append(self._write_files(sid, files, st, target, by=eng["name"], phase=phase))
+            if len(cmds) > 4:
+                results.append(f"[not run: {len(cmds) - 4} more ```run blocks — only 4 run per reply. Send the rest in your next reply.]")
             for cmd in cmds[:4]:
+                again = self._seen_cmd(sid, eng, cmd, st, target)
+                if again:
+                    results.append(f"$ {cmd}\n[not run again] {again}")
+                    continue
                 blocked = self._kill_guard(cmd, st, target) or next(
                     (why for ln in cmd.splitlines() if (why := self._port_guard(ln, target))), None)
                 if blocked:
@@ -1442,9 +1962,9 @@ class Api:
                     self._post(sid, "system", "Aether", f"Blocked: {blocked}")
                     continue
                 if self._approve(sid, eng, cmd, st, target):
-                    out = self._shell(sid, cmd, st, target)
+                    out = self._shell(sid, cmd, st, target, by=eng["name"])
                     self._acted.add(sid)
-                    results.append(out[-3000:])
+                    results.append(self._clip(out))
                 else:
                     results.append(f"$ {cmd}\n[skipped — the user did not approve this command]")
             text = self._run_once(sid, eng, cfg, st, target, phase=phase, directive=(
@@ -1452,6 +1972,35 @@ class Api:
                 "\n\nContinue your task. If you still need files or commands, output another ```aether / ```run block; "
                 "otherwise finish with your answer."))
         return text
+
+    READ_ONLY = re.compile(r"^\s*(ls|cat|head|tail|grep|rg|find|wc|tree|pwd|file|stat|du|echo|sed\s+-n|git\s+(?:status|log|diff|show|branch)|node\s+--version|python3?\s+--version|which)\b")
+    WRITES = re.compile(r"(?<![0-9&])>(?!\s*/dev/null)|\b(rm|mv|cp|tee|chmod|mkdir|touch|npm|npx|pip|kill|curl\s.*-o)\b|-exec|-delete|sed\s+-i")
+
+    def _read_only(self, cmd: str) -> bool:
+        lines = [ln for ln in re.split(r"\n|&&|\|\||;|\|", cmd) if ln.strip()]
+        return bool(lines) and all(self.READ_ONLY.match(ln) for ln in lines) and not self.WRITES.search(cmd)
+
+    def _seen_cmd(self, sid: str, eng: dict, cmd: str, st: dict, target: dict | None) -> str | None:
+        """Agents re-read the same files over and over. An identical read-only command from the same agent, with no
+        file in the project changed since it last ran, is answered from memory instead of being run again."""
+        if not self._read_only(cmd):
+            return None
+        state = self._listing(st, target, limit=400)
+        key = (sid, eng["id"], " ".join(cmd.split()))
+        seen = self._cmd_seen.get(key)
+        self._cmd_seen[key] = (state, time.strftime("%H:%M:%S"))
+        if seen and seen[0] == state:
+            return (f"you already ran exactly this at {seen[1]} and no file has changed since — use that output (it is in "
+                    "your thread above). If your own files are done and checked, finish now with your summary.")
+        return None
+
+    @staticmethod
+    def _clip(out: str, head: int = 7000, tail: int = 3000) -> str:
+        """Command output for the engineer. Keep the START (a `cat` of a file used to arrive as only its last 3000
+        characters, so engineers cat-ed the same file again and again) and the end (exit code, final errors)."""
+        if len(out) <= head + tail:
+            return out
+        return out[:head] + f"\n[… {len(out) - head - tail} characters cut …]\n" + out[-tail:]
 
     # Includes vendor variants such as <dots_function_call> (a free model emitted 300 KB of those and ended a job).
     FOREIGN_CALL = re.compile(r"<tool_call>|<[\w-]*function_call\b|<function[=\s>]|<parameter=|<invoke\b|\"tool_calls\"\s*:|<\|tool_call", re.I)
@@ -1569,7 +2118,7 @@ class Api:
                 self.emit({"t": "text", "sid": sid, "mid": mid, "d": ""})
             argv, local_cwd = build_command(eng, st["mode"], target, eff_cwd(st, target), proxy, phase == "verify")
             p, err = self._spawn(sid, argv, local_cwd, (next(iter(engineer_env(eng).values()), "") + "\n" if target and not proxy and eng["provider"] == "bob_cli" else "")
-                                  + wrap_stdin(eng["provider"], self._prompt(sid, eng, cfg, st, target, directive, proxy)),
+                                  + wrap_stdin(eng["provider"], self._prompt(sid, eng, cfg, st, target, directive, proxy, phase)),
                                   engineer_env(eng))
             last, hung, limit = [time.time()], [], IDLE_LIMIT.get(eng["provider"], IDLE_LIMIT_DEFAULT)
 
@@ -1613,6 +2162,10 @@ class Api:
             ok, error = False, str(exc)
 
         text = parser.text.strip()
+        if len(text) > RUNAWAY_CHARS:
+            ln = text.splitlines() or [text]
+            if len(set(ln)) / len(ln) < 0.2 or self.FOREIGN_CALL.search(text[:3000]) or len(set(text[i:i + 200] for i in range(0, 20000, 200))) < 30:
+                text = text[:3000] + f"\n\n[Aether cut this reply: {len(text) // 1024} KB of repeated output]"
         failed = sid not in self.stopped and ((bool(error) and error != "Stopped") or (not text and not tools))
         self._outcome[(sid, eng["id"])] = {"failed": failed, "why": error or "gave no reply"}
         if failed:
@@ -1650,7 +2203,7 @@ class Api:
             c.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?)",
                       (mid, sid, time.time(), "assistant", author, text, json.dumps(meta)))
 
-    def _write_files(self, sid: str, files: list[dict], st: dict, target: dict | None) -> str:
+    def _write_files(self, sid: str, files: list[dict], st: dict, target: dict | None, by: str | None = None, phase: str = "") -> str:
         """Write the files from an ```aether block into the project folder (Edit/Auto mode only; paths must stay
         inside it). Shown in the chat like a shell step; returns the report sent back to the engineer."""
         mid = uid()
@@ -1669,6 +2222,14 @@ class Api:
             norm = os.path.normpath(rel) if rel else ""
             if not norm or norm.startswith("..") or os.path.isabs(norm) or norm == ".":
                 report.append(f"✕ {rel or '?'}: not written — use a path inside the project folder")
+                continue
+            if phase == "test" and norm != self.E2E:
+                report.append(f"✕ {norm}: not written — the tester writes only {self.E2E}; report app bugs instead of fixing them.")
+                continue
+            owner = self._owner_of(sid, norm) if by and phase == "work" else None
+            if owner and owner != by:
+                report.append(f"✕ {norm}: not written — {owner} owns this file in the plan. Write only your own files; if it needs "
+                              "a change for your part to work, say exactly what in your summary.")
                 continue
             data = content.encode("utf-8")
             if len(data) > 2 << 20:
@@ -1695,13 +2256,13 @@ class Api:
                 report.append(f"✕ {norm}: {str(exc)[:160]}")
         body = f"$ write {names}\n" + "\n".join(report)
         self.emit({"t": "text", "sid": sid, "mid": mid, "d": "\n".join(report)})
-        self._store_assistant(sid, mid, "Shell", body, {"shell": True})
+        self._store_assistant(sid, mid, "Shell", body, {"shell": True, "by": by})
         with db() as c:
             c.execute("UPDATE messages SET role='shell' WHERE id=?", (mid,))
         self.emit({"t": "end", "sid": sid, "mid": mid, "ok": True, "content": body})
         return body
 
-    def _shell(self, sid: str, cmd: str, st: dict, target: dict | None) -> str:
+    def _shell(self, sid: str, cmd: str, st: dict, target: dict | None, by: str | None = None) -> str:
         mid = uid()
         self.emit({"t": "start", "sid": sid, "mid": mid, "author": "Shell", "eid": "shell", "shell": cmd})
         if target:
@@ -1735,7 +2296,7 @@ class Api:
         except Exception as exc:
             out.append(str(exc))
         body = f"$ {cmd}\n" + "".join(out)
-        self._store_assistant(sid, mid, "Shell", body, {"shell": True})
+        self._store_assistant(sid, mid, "Shell", body, {"shell": True, "by": by})
         with db() as c:   # stored as role=shell so engineers see it as user-run output
             c.execute("UPDATE messages SET role='shell' WHERE id=?", (mid,))
         self.emit({"t": "end", "sid": sid, "mid": mid, "ok": True, "content": body})

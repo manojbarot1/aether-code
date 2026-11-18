@@ -8,6 +8,7 @@ Checks (exit 0 = PASS, 1 = FAIL):
   4. the rendered page is not blank (screenshot has real content)
 Prints a short evidence report the engineer can paste into the chat.
 """
+import json
 import re
 import subprocess
 import warnings
@@ -73,39 +74,18 @@ def main(url: str) -> int:
             queue += [urllib.parse.urljoin(u, m) for m in re.findall(r"""(?:from|import)\s*\(?\s*["'](\.{0,2}/[^"']+)["']""", txt)]
     notes.append(f"OK    {checked} same-origin files reachable" if not any("missing" in f or "cannot fetch" in f for f in fails) else f"      checked {checked} files")
 
-    # 3 + 4. real browser
+    # 3 + 4. real browser: errors, what is on screen, every button clicked, and the team's scripted steps
     if not CHROME:
-        notes.append("WARN  no Chrome found — skipped the browser check (install Google Chrome for full verification)")
+        notes.append("WARN  no Chrome found — skipped the browser check (install Google Chrome or Chromium for full verification)")
     else:
-        with tempfile.TemporaryDirectory() as tmp:
-            shot = Path(tmp) / "page.png"
-            r = subprocess.run([CHROME, "--headless=new", "--disable-gpu", "--no-sandbox", "--hide-scrollbars", "--window-size=1280,800",
-                                "--enable-logging=stderr", "--v=0", "--virtual-time-budget=6000", f"--screenshot={shot}", url],
-                               capture_output=True, text=True, timeout=60)
-            errs = []
-            for ln in r.stderr.splitlines():
-                if "CONSOLE" in ln and ("rror" in ln or "Uncaught" in ln or "Failed" in ln or "404" in ln):
-                    errs.append(re.sub(r"^\[.*?CONSOLE[^\]]*\]\s*", "", ln).strip()[:240])
-            for e in dict.fromkeys(errs):
-                fails.append(f"browser console error: {e}")
-            if not errs:
-                notes.append("OK    no console errors in headless Chrome")
-            if shot.exists():
-                try:
-                    from PIL import Image
-                    im = Image.open(shot).convert("RGB").resize((160, 100))
-                    colors = len(set(im.getdata()))
-                    if colors < 6:
-                        fails.append(f"page renders blank/near-empty ({colors} distinct colours in a 1280x800 screenshot)")
-                    else:
-                        notes.append(f"OK    page renders content ({colors} distinct colours in screenshot)")
-                    keep = Path("/tmp/aether-verify.png")
-                    keep.write_bytes(shot.read_bytes())
-                    notes.append(f"      screenshot: {keep}")
-                except ImportError:
-                    notes.append("      (PIL missing: skipped the blank-page check)")
-            else:
-                fails.append("headless Chrome produced no screenshot (page failed to load?)")
+        try:
+            import browser_check
+            f2, n2 = browser_check.run(CHROME, url, steps=STEPS, clicks=CLICKS, width=SIZE[0], height=SIZE[1])
+            fails += f2
+            notes += n2
+        except Exception as exc:
+            notes.append(f"WARN  interactive browser check failed to run ({exc}); falling back to a screenshot check")
+            fails += legacy_screenshot(url, notes)
 
     print("\n".join(notes))
     if fails:
@@ -116,8 +96,53 @@ def main(url: str) -> int:
     return 0
 
 
+def legacy_screenshot(url, notes):
+    fails = []
+    with tempfile.TemporaryDirectory() as tmp:
+        shot = Path(tmp) / "page.png"
+        r = subprocess.run([CHROME, "--headless=new", "--disable-gpu", "--no-sandbox", "--hide-scrollbars", "--window-size=1280,800",
+                            "--enable-logging=stderr", "--v=0", "--virtual-time-budget=6000", f"--screenshot={shot}", url],
+                           capture_output=True, text=True, timeout=60)
+        for ln in r.stderr.splitlines():
+            if "CONSOLE" in ln and ("rror" in ln or "Uncaught" in ln or "Failed" in ln or "404" in ln):
+                fails.append("browser console error: " + re.sub(r"^\[.*?CONSOLE[^\]]*\]\s*", "", ln).strip()[:240])
+        if not shot.exists():
+            fails.append("headless Chrome produced no screenshot (page failed to load?)")
+    return list(dict.fromkeys(fails))
+
+
+STEPS, CLICKS, SIZE = None, True, (1280, 800)
+USAGE = """verify_web.py URL [--steps STEPS] [--no-clicks] [--mobile]
+
+STEPS is a JSON list (inline or a file path) of checks run in order in the real page, e.g.
+  [{"click": "#add-card"}, {"expect": "#card-modal", "visible": true},
+   {"type": ["#card-title", "Buy milk"]}, {"submit": "#card-form"}, {"expect": ".card", "text": "Buy milk"},
+   {"press": "Escape"}, {"expect": "#card-modal", "visible": false},
+   {"drag": [".card", "#col-done"]}, {"reload": true}, {"expect": ".card", "count": 1},
+   {"eval": "localStorage.length > 0", "equals": true}, {"wait": 500}, {"select": ["#filter", "high"]}]
+Actions: click, type [sel, text], select [sel, value], press KEY (optional "on": sel), submit FORM, drag [from, to],
+wait MS, reload. Checks: expect SEL (+ visible true/false, text "…", count N), eval JS (+ equals VALUE).
+--no-clicks skips clicking every button; --mobile uses a 375x812 viewport."""
+
+
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help"):
         print(__doc__)
+        print(USAGE)
         sys.exit(2)
-    sys.exit(main(sys.argv[1]))
+    target = args[0]
+    if "--no-clicks" in args:
+        CLICKS = False
+    if "--mobile" in args:
+        SIZE = (375, 812)
+    if "--steps" in args:
+        raw = args[args.index("--steps") + 1]
+        try:
+            STEPS = json.loads(Path(raw).read_text() if Path(raw).is_file() else raw)
+            assert isinstance(STEPS, list)
+        except Exception as exc:
+            print(f"FAIL  --steps is not a JSON list of steps: {exc}\n\n{USAGE}")
+            sys.exit(2)
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    sys.exit(main(target))
