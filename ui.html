@@ -73,8 +73,9 @@ select.field option{color:#111}
 @keyframes rise{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:none}}
 @keyframes pulse{70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
 /* layout */
-#app{display:grid;grid-template-columns:248px 1fr;gap:12px;height:100vh;padding:12px}
-#side{display:flex;flex-direction:column;padding:16px 10px 12px;border-radius:var(--r-xl);min-height:0;overflow:hidden}
+:root{--side-w:248px}
+#app{display:grid;grid-template-columns:var(--side-w) 1fr;gap:12px;height:100vh;padding:12px}
+#side{position:relative;display:flex;flex-direction:column;padding:16px 10px 12px;border-radius:var(--r-xl);min-height:0;overflow:hidden}
 #main{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;border-radius:var(--r-xl)}
 .brand{display:flex;align-items:center;gap:11px;padding:0 8px 14px}
 .orb{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;color:#fff;font-size:17px;
@@ -144,7 +145,7 @@ select.field option{color:#111}
 .pchip .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:230px;color:var(--text-2)}.pchip .e{color:var(--text-3);font-variant-numeric:tabular-nums}
 .pchip.ph{cursor:default;background:var(--accent-soft);color:var(--accent);font-weight:600}
 /* right-hand summary: the lead's wrap-up of the last finished job */
-#app.sum-open{grid-template-columns:248px minmax(0,1fr) 320px}
+#app.sum-open{grid-template-columns:var(--side-w) minmax(0,1fr) 320px}
 #sum{display:none;flex-direction:column;min-height:0;border-radius:var(--r-xl);overflow:hidden}
 #app.sum-open #sum{display:flex}
 #sum .hd{display:flex;align-items:center;gap:6px;padding:12px 12px 10px 16px;border-bottom:1px solid var(--glass-line)}
@@ -152,7 +153,7 @@ select.field option{color:#111}
 #sum .meta{font-size:11.5px;color:var(--text-3);padding:8px 16px 0}
 #sum .bd{flex:1;overflow:auto;padding:4px 16px 16px;user-select:text;-webkit-user-select:text}
 #sum .bd .bub{padding:0}
-@media (max-width:1100px){#app.sum-open{grid-template-columns:248px minmax(0,1fr)}
+@media (max-width:1100px){#app.sum-open{grid-template-columns:var(--side-w) minmax(0,1fr)}
   #app.sum-open #sum{position:fixed;right:12px;top:12px;bottom:12px;width:min(340px,90vw);z-index:8;background:var(--glass-strong)}}
 /* attachments */
 #att{display:flex;gap:6px;flex-wrap:wrap;padding:6px 14px 0}#att:empty{display:none}
@@ -163,12 +164,18 @@ select.field option{color:#111}
 #main.drop{box-shadow:inset 0 0 0 2px var(--accent),var(--glass-shadow)}
 #cwd{max-width:240px;justify-content:flex-start;overflow:hidden;text-overflow:ellipsis}
 html.web .desk-only{display:none}
+/* drag the sidebar's right edge to widen it (full session names); double-click resets */
+#sideGrip{position:absolute;top:14px;bottom:14px;right:0;width:9px;cursor:col-resize;z-index:5;touch-action:none}
+#sideGrip::after{content:"";position:absolute;top:0;bottom:0;right:3px;width:3px;border-radius:3px;background:var(--accent,#5b8cff);opacity:0;transition:opacity .15s}
+#sideGrip:hover::after,#sideGrip:focus-visible::after,body.resizing #sideGrip::after{opacity:.7}
+body.resizing{cursor:col-resize;user-select:none;-webkit-user-select:none}
 #jump{position:absolute;left:50%;transform:translateX(-50%);bottom:132px;z-index:6;box-shadow:0 8px 22px -6px rgba(0,0,0,.45)}#jump[hidden]{display:none}
 </style></head>
 <body>
 <div class="ambient"><i></i><i></i><i></i><i></i></div>
 <div id="app">
   <aside id="side" class="glass">
+    <div id="sideGrip" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0" title="Drag to widen the sidebar · double-click to reset"></div>
     <div class="brand"><div class="orb">✦</div><div><div class="bn">Aether Lite</div><div class="bs">AI engineering team</div></div></div>
     <button class="btn primary" onclick="newSession()">＋ New session</button>
     <div class="sec">Sessions</div>
@@ -277,7 +284,7 @@ function renderMsgs(ms){
 }
 function renderSide(){
   const live_=S.sessions.filter(x=>!x.archived),arch=S.sessions.filter(x=>x.archived);
-  const row=(x,a)=>`<div class="item ${x.id===S.cur?.id?'on':''}" onclick="openSession('${x.id}')" title="${esc(x.summary||x.title)}"><span class="t">${esc(x.title)}</span><span class="x" title="Rename" onclick="event.stopPropagation();renameSession('${x.id}')">✎</span><span class="x" title="${a?'Restore':'Archive'}" onclick="event.stopPropagation();archiveSession('${x.id}',${!a})">${a?'↩':'🗄'}</span><span class="x" title="Delete" onclick="event.stopPropagation();delSession('${x.id}')">✕</span></div>`;
+  const row=(x,a)=>`<div class="item ${x.id===S.cur?.id?'on':''}" onclick="openSession('${x.id}')" title="${esc(x.title+(x.summary?'\n\n'+x.summary:''))}"><span class="t">${esc(x.title)}</span><span class="x" title="Rename" onclick="event.stopPropagation();renameSession('${x.id}')">✎</span><span class="x" title="${a?'Restore':'Archive'}" onclick="event.stopPropagation();archiveSession('${x.id}',${!a})">${a?'↩':'🗄'}</span><span class="x" title="Delete" onclick="event.stopPropagation();delSession('${x.id}')">✕</span></div>`;
   setHTML($('sessions'),live_.map(x=>row(x,false)).join('')+(arch.length?`<div class="sec" style="cursor:pointer" onclick="S.showArch=!S.showArch;renderSide()">${S.showArch?'▾':'▸'} Archived (${arch.length})</div>`+(S.showArch?arch.map(x=>row(x,true)).join(''):''):''));
   const act=S.cur?.settings.active||[];
   setHTML($('engs'),S.cfg.engineers.map(e=>`<div class="item eng ${act.includes(e.id)?'on':''}" onclick="toggleEng('${e.id}')"><div class="av" style="background:${e.color}">${esc(e.avatar||'●')}<i class="sdot ${(S.status.engineers[e.id]||{}).state||''}" title="${esc((S.status.engineers[e.id]||{}).detail||'checking…')}"></i></div><div class="t"><div>${esc(e.name)}${act[0]===e.id&&act.length>1&&S.cur.settings.team?' <span class="badge accent">lead</span>':''}</div><div class="sub">${esc(e.role)}</div></div><span class="x" onclick="event.stopPropagation();editEngineer('${e.id}')">✎</span></div>`).join(''));
@@ -289,6 +296,25 @@ function renderSide(){
   const tm=!!st.team&&act.length>1;$('solo').setAttribute('aria-pressed',!tm);$('team').setAttribute('aria-pressed',tm);
   const names=act.map(i=>eng(i)?.name).filter(Boolean);$('chips').textContent=!names.length?'No engineer selected':tm?`Team: ${names[0]} leads → ${names.slice(1).join(', ')} work → ${names[0]} reviews`:`Replying: ${names.join(', ')} · @name to choose`;
 }
+
+// ── sidebar width (drag its right edge; remembered in this browser)
+(function(){
+  const KEY='aether-side-w',DEF=248,MIN=200,max=()=>Math.max(MIN,Math.min(720,innerWidth*0.6));
+  const set=(w,save)=>{w=Math.round(Math.max(MIN,Math.min(max(),w)));document.documentElement.style.setProperty('--side-w',w+'px');
+    if(save){try{localStorage.setItem(KEY,w)}catch(e){}}};
+  try{const v=+localStorage.getItem(KEY);if(v)set(v)}catch(e){}
+  const g=document.getElementById('sideGrip');if(!g)return;
+  const cur=()=>document.getElementById('side').getBoundingClientRect().width;
+  g.addEventListener('pointerdown',e=>{e.preventDefault();g.setPointerCapture(e.pointerId);document.body.classList.add('resizing');
+    const x0=e.clientX,w0=cur();
+    const mv=ev=>set(w0+ev.clientX-x0);
+    const up=ev=>{g.removeEventListener('pointermove',mv);g.removeEventListener('pointerup',up);g.removeEventListener('pointercancel',up);
+      document.body.classList.remove('resizing');set(cur(),true)};
+    g.addEventListener('pointermove',mv);g.addEventListener('pointerup',up);g.addEventListener('pointercancel',up)});
+  g.addEventListener('dblclick',()=>set(DEF,true));
+  g.addEventListener('keydown',e=>{if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.preventDefault();set(cur()+(e.key==='ArrowRight'?24:-24),true)}});
+  addEventListener('resize',()=>{if(cur()>max())set(max(),false)});
+})();
 
 // ── sessions
 async function openSession(id){S.cur=S.sessions.find(s=>s.id===id);renderSide();renderMsgs(await api().load_session(id))}
