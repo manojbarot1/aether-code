@@ -240,6 +240,30 @@ class Chrome:
         shutil.rmtree(self.profile, ignore_errors=True)
 
 
+ACTIONS = ("click", "type", "select", "press", "submit", "drag", "reload", "wait")
+CHECKS = {"expect": ("visible", "text", "count"), "eval": ("equals",)}
+
+
+def split_steps(steps: list) -> list:
+    """{"click": "#a", "expect": "#b", "visible": true} is one action and one check. The step runner does only the first
+    key it knows, so the check was silently skipped and could never fail; run them as separate steps, action first."""
+    out = []
+    for st in steps or []:
+        if not isinstance(st, dict):
+            out.append(st)
+            continue
+        acts = [k for k in ACTIONS if k in st]
+        checks = [k for k in CHECKS if k in st]
+        if len(acts) + len(checks) <= 1:
+            out.append(st)
+            continue
+        for k in acts:
+            out.append({k: st[k], **({"on": st["on"]} if k == "press" and "on" in st else {})})
+        for k in checks:
+            out.append({k: st[k], **{x: st[x] for x in CHECKS[k] if x in st}})
+    return out
+
+
 def run(chrome: str, url: str, steps: list | None = None, clicks: bool = True, width: int = 1280, height: int = 800):
     """Returns (fails, notes) lines for the report."""
     fails, notes = [], []
@@ -264,6 +288,7 @@ def run(chrome: str, url: str, steps: list | None = None, clicks: bool = True, w
             fails.append(f"page looks empty: {a['textLength']} characters of visible text and no canvas")
         if a["unlabeled"]:
             notes.append("WARN  buttons without a text or aria-label: " + ", ".join(a["unlabeled"]))
+        steps = split_steps(steps)
         if steps:
             fn = STEP_JS.strip()
             known = {"click", "type", "select", "press", "submit", "wait", "expect", "eval", "drag", "reload"}

@@ -105,5 +105,13 @@ class Assets(unittest.TestCase):
             self.assertNotIn("imports 'three',", out)
 
 
+
+class Steps(unittest.TestCase):
+    def test_combined_step_split(self):
+        import browser_check
+        self.assertEqual(browser_check.split_steps([{"click": "#a", "expect": "#b", "visible": True}, {"expect": "#c"}]),
+                         [{"click": "#a"}, {"expect": "#b", "visible": True}, {"expect": "#c"}])
+
+
 if __name__ == "__main__":
     unittest.main()

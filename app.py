@@ -1663,7 +1663,8 @@ class Api:
             "broken feature fails. Pure JSON: no comments, no trailing commas. Start the page with `aserve .` (once) and run your "
             f"steps against the URL it prints: `{VERIFY_PY} <url> --no-clicks --steps {self.E2E}`. "
             "If a step fails because the APP is broken, keep the step (that is a real bug for the builders) and list it; fix a "
-            "step only when the step itself is wrong. Do not change any other file. End with: how many steps, which failed and why."))
+            "step only when the step itself is wrong. Do not change any other file. End with: how many steps, which failed and why.\n"
+            "The example above is from another app — use THIS project's ids. " + self._e2e_starter(st, target)))
         for _ in range(2):
             why = self._e2e_problem(st, target)
             if not why or sid in self.stopped:
@@ -1671,7 +1672,8 @@ class Api:
             self._post(sid, "system", "Team", f"{tester['name']}: {why} — sending it back.", {"phase": "work"})
             tester, _ = self._run_covered(sid, tester, pool, cfg, st, target, phase="test", what="acceptance tests", directive=(
                 f"{why}. Write `{self.E2E}` now with one ```aether block: a JSON list of at least {self.E2E_MIN} steps that check every "
-                "user-visible requirement, using the real ids/classes in index.html and the scripts. Then run it as described above."))
+                "user-visible requirement, using the real ids/classes in index.html and the scripts. Then run it as described above.\n"
+                + self._e2e_starter(st, target)))
 
     E2E_MIN = 8
 
@@ -1684,9 +1686,45 @@ class Api:
             steps = json.loads(f.read_text())
         except ValueError as exc:
             return f"{self.E2E} is not valid JSON ({str(exc)[:80]})"
-        if not isinstance(steps, list) or len(steps) < self.E2E_MIN:
-            return f"{self.E2E} has {len(steps) if isinstance(steps, list) else 0} steps; it needs at least {self.E2E_MIN} covering the requirements"
+        if isinstance(steps, dict):
+            steps = next((v for v in steps.values() if isinstance(v, list)), steps)
+            if isinstance(steps, list):
+                return (f"{self.E2E} is an object wrapping the list; it must be the bare JSON list of steps itself, "
+                        f"[{{\"click\": \"#id\"}}, {{\"expect\": \"#id\", \"visible\": true}}, …]")
+        if not isinstance(steps, list):
+            return f"{self.E2E} must be a JSON list of step objects"
+        words = [x for x in steps if isinstance(x, str)]
+        if words:
+            return (f"{self.E2E} lists {len(words)} sentences like \"{words[0][:60]}\" — a person's checklist, which a browser "
+                    "can't run. Each step must be an object with one action or check, e.g. {\"click\": \"#id\"} then "
+                    "{\"expect\": \"#id\", \"visible\": true}")
+        bad = [x for x in steps if not (isinstance(x, dict) and set(x) & self.E2E_KEYS)]
+        if bad:
+            return (f"{self.E2E} has {len(bad)} step(s) with no known action, e.g. {json.dumps(bad[0])[:80]}. Known: "
+                    + ", ".join(sorted(self.E2E_KEYS)))
+        if len(steps) < self.E2E_MIN:
+            return f"{self.E2E} has {len(steps)} steps; it needs at least {self.E2E_MIN} covering the requirements"
         return None
+
+    E2E_KEYS = {"click", "type", "select", "press", "submit", "wait", "expect", "eval", "drag", "reload"}
+
+    def _e2e_starter(self, st: dict, target: dict | None) -> str:
+        """A few valid steps built from the page's real buttons and ids: a template the tester extends, so it can't
+        mistake the format (free models write sentences, or copy the generic example's ids)."""
+        root = Path(os.path.expanduser(eff_cwd(st, target))).resolve()
+        page = root / "index.html"
+        if not page.is_file():
+            return ""
+        html = page.read_text(errors="replace")
+        buttons = re.findall(r"<button[^>]*\bid\s*=\s*[\"']([\w-]+)", html)[:3]
+        ids = [i for i in re.findall(r"\bid\s*=\s*[\"']([\w-]+)", html) if i not in buttons][:3]
+        steps = [{"expect": f"#{ids[0]}", "visible": True}] if ids else []
+        for b in buttons:
+            steps += [{"click": f"#{b}"}, {"expect": f"#{ids[-1] if ids else b}", "visible": True}]
+        steps.append({"eval": "document.querySelectorAll('canvas').length > 0" if "canvas" in html.lower() else
+                      "document.body.innerText.length > 0", "equals": True})
+        return ("Start from these steps (real ids from index.html) and replace each `expect` with what that button must "
+                "really change:\n" + json.dumps(steps))
 
 
 
@@ -2452,6 +2490,8 @@ class Api:
         root = eff_cwd(st, target)
         for f in files:
             rel, content = str(f.get("path") or "").strip(), f.get("content")
+            if isinstance(content, (list, dict)) and rel.endswith(".json"):
+                content = json.dumps(content, indent=1)     # a JSON file given as JSON, not as a string: write it
             if not isinstance(content, str):
                 report.append(f"✕ {rel or '?'}: no \"content\" string")
                 continue
