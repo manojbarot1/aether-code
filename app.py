@@ -1933,12 +1933,19 @@ class Api:
             auto_ok, auto = self._auto_checks(sid, st, target) if st["mode"] in ("edit", "auto") else (None, "")
             if auto:
                 self._post(sid, "shell", "Aether checks", auto, {"phase": "verify", "shell": True})
-            self._post(sid, "system", "Team", f"Verify · {lead['name']} tests the work" + (" (re-check)" if rnd > 1 else ""), {"phase": "verify"})
-            directive = VERIFY + (f"\n\n{auto}\n\nIf an automatic check FAILED, your verdict is FAIL: find the cause in the code and "
-                                  "name the file and the fix." if auto else "")
-            lead, out = self._run_covered(sid, lead, pool, cfg, st, target, directive, phase="verify", what="verification")
-            found = re.findall(r"VERDICT:\s*(PASS|FAIL|UNVERIFIED)", out)
-            verdict = found[-1] if found else "UNVERIFIED"          # no marker is not a failure — nothing to repair
+            if auto_ok is False:
+                # The verdict is FAIL whatever a model says, and leads asked to review a failing build mostly write
+                # "all verified ✓". Go straight to repair; the lead reviews the requirements once the checks pass.
+                self._post(sid, "system", "Team", f"Aether's checks failed ({len(self._failed_checks(auto))} failing check(s)) — straight "
+                           "to repair; the lead reviews once they pass.", {"phase": "verify"})
+                verdict, out = "FAIL", ""
+            else:
+                self._post(sid, "system", "Team", f"Verify · {lead['name']} tests the work" + (" (re-check)" if rnd > 1 else ""), {"phase": "verify"})
+                directive = VERIFY + (f"\n\n{auto}\n\nIf an automatic check FAILED, your verdict is FAIL: find the cause in the code and "
+                                      "name the file and the fix." if auto else "")
+                lead, out = self._run_covered(sid, lead, pool, cfg, st, target, directive, phase="verify", what="verification")
+                found = re.findall(r"VERDICT:\s*(PASS|FAIL|UNVERIFIED)", out)
+                verdict = found[-1] if found else "UNVERIFIED"      # no marker is not a failure — nothing to repair
             if auto_ok is False and verdict != "FAIL":
                 self._post(sid, "system", "Aether", f"{lead['name']} said {verdict}, but Aether's automatic checks failed — "
                            "treating it as FAIL.", {"phase": "verify"})
@@ -1981,9 +1988,13 @@ class Api:
             recheck = [c for c in self._auto_cmds.get(sid, []) if "verify_web" not in c]
             recheck.append(f"{PY_FOR_TOOLS} {Path(__file__).parent / 'contract_check.py'} .")
             recheck += [c for c in self._auto_cmds.get(sid, []) if "verify_web" in c]
-            again_cmd = ("Then run ALL of these (not only the one that failed — a fix must not break the rest) and show the output; "
-                         "the job only passes when every one passes:\n" +
-                         "\n".join(f"  {c}" for c in recheck) + "\n") if recheck else "Then re-run the failing check yourself and show the output.\n"
+            script = self._write_check_script(st, target, recheck)
+            again_cmd = (f"Then run `sh {script}` — it runs every check Aether runs (not only the one that failed: a fix must "
+                         "not break the rest) — and show its output; the job only passes when every check passes. Run that "
+                         "exact command; don't retype the checks.\n") if script else (
+                ("Then run ALL of these (not only the one that failed — a fix must not break the rest) and show the output; "
+                 "the job only passes when every one passes:\n" + "\n".join(f"  {c}" for c in recheck) + "\n")
+                if recheck else "Then re-run the failing check yourself and show the output.\n")
             self._post(sid, "system", "Team", f"Fix · {', '.join(m['name'] for m in fixers)} repair what failed (round {rnd})", {"phase": "work"})
 
             def fix_directive(m):
@@ -2003,6 +2014,21 @@ class Api:
                 t.start()
             for t in threads:
                 t.join()
+
+    def _write_check_script(self, st: dict, target: dict | None, cmds: list[str]) -> str:
+        """All of Aether's checks as one short command for the integrator (free models retype long tool paths wrongly)."""
+        if target is not None or not cmds:
+            return ""
+        root = Path(os.path.expanduser(eff_cwd(st, target))).resolve()
+        try:
+            (root / ".aether").mkdir(exist_ok=True)
+            label = lambda c: re.sub(r"\S*/([\w-]+\.py)", r"\1", c)[:100].replace("'", "")
+            body = "\n".join(f"echo; echo '$ {label(c)}'\n{c} || rc=1" for c in cmds)
+            (root / ".aether" / "check.sh").write_text(f"# Every check Aether runs. Written by Aether; run: sh .aether/check.sh\nrc=0\n{body}\n"
+                                                       "[ $rc = 0 ] && echo 'ALL CHECKS PASS' || echo 'SOME CHECKS FAIL'\nexit $rc\n")
+        except OSError:
+            return ""
+        return ".aether/check.sh"
 
     def _learn(self, sid: str, cfg: dict) -> None:
         """Background: distil durable facts + a session summary from the latest exchange (one fast Haiku call)."""

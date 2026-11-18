@@ -154,10 +154,12 @@ def _importmap(root: Path, js: list[Path]) -> list[str]:
     import json as _json
     pages = [p for p in _files(root) if p.suffix == ".html"]
     maps: dict[str, str] = {}
+    where = ""
     for page in pages:
         for raw in re.findall(r"""<script[^>]*type\s*=\s*["']importmap["'][^>]*>(.*?)</script>""", page.read_text(errors="replace"), re.S | re.I):
             try:
                 maps.update((_json.loads(raw).get("imports") or {}))
+                where = str(page.relative_to(root))
             except ValueError:
                 return [f"{page.relative_to(root)} has an importmap that is not valid JSON, so every bare import fails"]
     if not maps or (root / "package.json").exists():
@@ -171,9 +173,12 @@ def _importmap(root: Path, js: list[Path]) -> list[str]:
             if spec in maps or any(k.endswith("/") and spec.startswith(k) for k in maps):
                 continue
             near = max((k for k in maps if spec.startswith(k + "/")), key=len, default=None)
-            out.append(f"{src.relative_to(root)} imports '{spec}', which the page's importmap doesn't resolve"
+            out.append(f"{src.relative_to(root)} imports '{spec}', which the <script type=\"importmap\"> in {where} doesn't resolve"
                        + (f": the key \"{near}\" needs a trailing slash (\"{near}/\") to map a path prefix" if near else
                           f". Add it to the importmap (keys: {', '.join(sorted(maps))})"))
+    if out and any(p.name == "importmap.json" for p in _files(root)):
+        out.append("importmap.json is never read by browsers: only the <script type=\"importmap\"> inside the page counts — "
+                   "fix that one (and delete importmap.json)")
     return out[:6]
 
 
